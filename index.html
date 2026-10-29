@@ -335,8 +335,19 @@ let STATE = null;
 let current = null;
 let query = '';
 
+const SITE_URL = 'https://vamikalabel.github.io/naveen/';
+
 async function load() {
   $('status').className = 'status'; setText('status-text', 'Loading the sheet…'); $('err').hidden = true;
+  if (location.protocol === 'file:') {
+    // Google does not answer pages opened straight from the computer, so send people to the website.
+    $('status').className = 'status err';
+    setText('status-text', 'Opened from your computer');
+    const box = $('err'); box.hidden = false;
+    const a = document.createElement('a'); a.href = SITE_URL; a.textContent = SITE_URL; a.style.color = 'inherit';
+    box.replaceChildren('This copy was opened as a file on your computer, and Google only shares the sheet with websites. Open the live portal instead: ', a);
+    return;
+  }
   try {
     const months = monthsUntilNow();
     const [fixedRows, emiRows, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), ...months.map(loadMonth)]);
