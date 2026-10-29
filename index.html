@@ -81,6 +81,12 @@ tr.s td:last-child { text-decoration: none; }
 .bar:first-child .fill { background: var(--accent); }
 .amt { text-align: right; min-width: 7rem; }
 .pct { color: var(--muted); font-size: .76rem; margin-left: 4px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button { border: none; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 10px 14px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tab { display: grid; gap: 22px; }
+.tab[hidden] { display: none; }
+tfoot td { border-top: 2px solid var(--line); background: var(--panel); position: sticky; bottom: 0; }
 .err-box { border: 1px solid var(--bad); color: var(--bad); border-radius: var(--r); padding: 12px 14px; background: var(--panel); }
 footer { font-size: .8rem; color: var(--muted); }
 @media (max-width: 560px) { h1 { font-size: 2rem; } .tile .v { font-size: 1.6rem; } .bar { grid-template-columns: minmax(0, 7rem) 1fr auto; } }
@@ -95,6 +101,13 @@ footer { font-size: .8rem; color: var(--muted); }
   </header>
 
   <div class="err-box" id="err" hidden></div>
+
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button type="button" role="tab" id="tabbtn-overview" data-tab="overview" aria-selected="true">Overview</button>
+    <button type="button" role="tab" id="tabbtn-most" data-tab="most" aria-selected="false">Where we spend most</button>
+  </nav>
+
+  <div class="tab" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview">
 
   <section class="tiles" aria-label="Headline figures">
     <div class="tile"><div class="k">Paid in <span id="t-month">—</span></div><div class="v" id="t-total">—</div><div class="n">Fixed plus daily spending</div></div>
@@ -118,6 +131,7 @@ footer { font-size: .8rem; color: var(--muted); }
       <div class="scroll"><table>
         <thead><tr><th>Year</th><th class="num">Months</th><th class="num">Fixed</th><th class="num">Daily</th><th class="num">Total paid</th><th class="num">Avg / month</th><th class="num">Deficit</th></tr></thead>
         <tbody id="years-body"></tbody>
+        <tfoot><tr id="years-foot"></tr></tfoot>
       </table></div>
     </div>
     <div class="card" id="fixed">
@@ -146,6 +160,7 @@ footer { font-size: .8rem; color: var(--muted); }
     <div class="scroll"><table>
       <thead><tr><th>Month</th><th class="num">Fixed</th><th class="num">Daily</th><th class="num">Total paid</th><th class="num">Income</th><th class="num">Deficit</th></tr></thead>
       <tbody id="months-body"></tbody>
+      <tfoot><tr id="months-foot"></tr></tfoot>
     </table></div>
   </section>
 
@@ -155,6 +170,7 @@ footer { font-size: .8rem; color: var(--muted); }
     <div class="scroll"><table class="matrix">
       <thead><tr id="matrix-head"></tr></thead>
       <tbody id="matrix-body"></tbody>
+      <tfoot><tr id="matrix-foot"></tr></tfoot>
     </table></div>
   </section>
 
@@ -189,6 +205,7 @@ footer { font-size: .8rem; color: var(--muted); }
         <div class="scroll"><table>
           <thead><tr><th>Item</th><th class="num">Times</th><th class="num">Total</th></tr></thead>
           <tbody id="top-body"></tbody>
+          <tfoot><tr id="top-foot"></tr></tfoot>
         </table></div>
       </div>
     </div>
@@ -198,9 +215,60 @@ footer { font-size: .8rem; color: var(--muted); }
       <div class="scroll tall"><table>
         <thead><tr><th>Date</th><th>Item</th><th>Category</th><th class="num">Amount</th><th class="num">Day total</th><th>Note</th></tr></thead>
         <tbody id="items-body"></tbody>
+        <tfoot><tr id="items-foot"></tr></tfoot>
       </table></div>
     </div>
   </section>
+
+  </div>
+
+  <div class="tab" id="tab-most" role="tabpanel" aria-labelledby="tabbtn-most" hidden>
+    <section class="card">
+      <div class="controls">
+        <label for="most-period">Period</label>
+        <select id="most-period"></select>
+      </div>
+      <p class="note">Daily spending only. Fixed expenses and items marked S are left out.</p>
+      <div class="bill">
+        <div><span>Daily spending</span><b id="most-total">—</b></div>
+        <div><span>Entries</span><b id="most-count">—</b></div>
+        <div><span>Average per month</span><b id="most-avg">—</b></div>
+        <div><span>Biggest category</span><b id="most-topcat">—</b></div>
+      </div>
+    </section>
+
+    <section class="card" id="most-cats">
+      <h2>Categories, biggest first</h2>
+      <p class="note">How much each category took in the chosen period and its share of daily spending.</p>
+      <div class="bars" id="most-bars"></div>
+      <div class="scroll"><table>
+        <thead><tr><th>#</th><th>Category</th><th class="num">Entries</th><th class="num">Avg / month</th><th class="num">Share</th><th class="num">Total</th></tr></thead>
+        <tbody id="most-cat-body"></tbody>
+        <tfoot><tr id="most-cat-foot"></tr></tfoot>
+      </table></div>
+    </section>
+
+    <section class="grid">
+      <div class="card" id="most-items">
+        <h2>Top 25 items</h2>
+        <p class="note">Same item names added together.</p>
+        <div class="scroll"><table>
+          <thead><tr><th>#</th><th>Item</th><th>Category</th><th class="num">Times</th><th class="num">Total</th></tr></thead>
+          <tbody id="most-item-body"></tbody>
+          <tfoot><tr id="most-item-foot"></tr></tfoot>
+        </table></div>
+      </div>
+      <div class="card" id="most-big">
+        <h2>25 biggest single expenses</h2>
+        <p class="note">Individual entries, largest first.</p>
+        <div class="scroll"><table>
+          <thead><tr><th>Date</th><th>Item</th><th>Category</th><th class="num">Amount</th></tr></thead>
+          <tbody id="most-big-body"></tbody>
+          <tfoot><tr id="most-big-foot"></tr></tfoot>
+        </table></div>
+      </div>
+    </section>
+  </div>
 
   <footer>Data comes straight from the Google Sheet. To change a number, edit the sheet and press Refresh here.</footer>
 </div>
@@ -230,12 +298,13 @@ const CATS = [
   ['Personal care', /SALOON|PEDICURE|HAIR|TONI|NATURALS|NAURALS|EYE ?BROWS|WAX|PARLOUR|SHAMPOO|SOAP|PASTE|CREAM$|LOTION|SHAVING|CUTTING|THREAD|PADS|GYM|MASSAGER/],
   ['Documents & office', /ADHAR|AADHAR|\bPAN\b|MEE SEVA|STAMP|XEROX|PRINT|LAMINATE|STATION|VIS[I]?TING|PARCEL|BLUEDART|^AD$|STICKERS|COVERS$|PAPER PLATE|ALBUM/],
   ['Home & repairs', /URBAN|^UC$|PLUMBER|CARPENTER|\bAC\b|PURIFIER|FILTER|ELECTRICAL|LIGHT|BULB|\bIRON$|RICE COOKER|BLENDER|HEATER|^BED$|MIXER|LOCK|INSTA|REMOTE|CELLS|BATTERY|SWITCH|REGULATOR|\bMCB\b|CC CAM|STOOL|MACHINE|DRY CLEANING|^MOP$|^JAR$|DUSTBIN|PLANTS|WATCHMAN$|BOARD|STOP DOOR|MAGNETS|CLIPS|DISPOSAL|RAT SPRAY|HEAT PRESS|WORKER|ELECTRIC|CASE|SCREEN GAURD|PHONE|MOBILE|BRUSH|TUBE/],
-  ['Groceries & milk', /MILK|CURD|BATTER|EGG|VEG|FRUIT|BANANA|MARKET|KIRANA|GROCER|DMART|RELIANCE|ZEPTO|BLINKIT|NATIONAL MART|RATNADEEP|PUBLIX|LULU|OIL|RICE|ONION|CHICKEN|MUTTON|FISH|PAN+ER|ALLAM|DRY FRUIT|ALMOND$|WATER CAN|^WATER$|GHEE|BREAD|BUNS|ZEELAKARA/],
+  ['Shop', /MARKET|^SHOP$/],
+  ['Groceries & milk', /MILK|CURD|BATTER|EGG|VEG|FRUIT|BANANA|KIRANA|GROCER|DMART|RELIANCE|ZEPTO|BLINKIT|NATIONAL MART|RATNADEEP|PUBLIX|LULU|OIL|RICE|ONION|CHICKEN|MUTTON|FISH|PAN+ER|ALLAM|DRY FRUIT|ALMOND$|WATER CAN|^WATER$|GHEE|BREAD|BUNS|ZEELAKARA/],
   ['Shopping & clothes', /SHOPPING|DRESS|SAREE|ZUDIO|^MAX|AMAZON|FLIPKART|MATC?HING|MATHING|BLOUSE|STI?CHING|SHOES|CHAPPAL|SOCKS|INNERS|NIGHT PANT|RAMRAJ|FORUM|KASAT|CHAWLI|AKHILA|NARSING|MEMSHAB|MEMSABH|DOTHI|BAG|GOLD|SILVER|OLX|MR DIY|R & B|EXHIBITION|AKRUTHI|SNITCH|STYLE UNION|WEST SIDE|SHOP|EASY BUY|DEING|SARUKULU|JNTU|KS BAKERS|VOUCHER/],
   ['Food & eating out', /\bBF\b|LUNCH|DINNER|BIRYANI|PIZZA|SWIGG|ZOMATO|FOOD|TIFFIN|CURR|CHAPATHI|ROTTI|PAROTA|KFC|DOMINOS|ICE CREAM|CREAM STONE|SHAKE|JUICE|^TEA$|CHAT|PANI PURI|SNACKS|REFRESH|BAKERY|CAKE|SWEET|SWRRTS|SAMOSA|PUFF|FRANKIE|MANCHURIA|FRIEDRICE|STARTERS|REASTAURANT|RESTAURANT|HALEEM|PAKODI|KOVA|CHIPS|BURGER|WINES|SODA|DRINK|THUMSUP|COCO|SUGAR CANE|ALMOND HOUSE|CHOCLATES|TGF|JAMMIN|THICJ|BREAK|DARBAR|TEAM TIME|KPN|ANTRAM|CHIPURLU|WATER MELLON|ICE|RUSHIBHA|NAVATHA/],
   ['Family, gifts & fun', /GIFT|BIRTHDAY|PARTY|MARRIAGE|SANTA|^DAD$|PAPA|KEERTHI|KANNA|RAJI|MAHESH|AKHIL|DURGA|FRNDS|MOVIE|IPL|SHOOT|WAITER|VESUKO|GHANSHYAM|MATCH$|OLD AMOUNT|STUFF/]
 ];
-const CAT_NAMES = ['Food & eating out', 'Groceries & milk', 'Fuel & vehicle', 'Travel & trips', 'Medical', 'Shopping & clothes', 'Bills & subscriptions', 'Home & repairs', 'Baby & kids', 'Personal care', 'Pooja & festivals', 'Family, gifts & fun', 'Documents & office', 'Other'];
+const CAT_NAMES = ['Food & eating out', 'Groceries & milk', 'Shop', 'Fuel & vehicle', 'Travel & trips', 'Medical', 'Shopping & clothes', 'Bills & subscriptions', 'Home & repairs', 'Baby & kids', 'Personal care', 'Pooja & festivals', 'Family, gifts & fun', 'Documents & office', 'Other'];
 const categorize = (item) => { const n = item.toUpperCase(); const h = CATS.find(([, re]) => re.test(n)); return h ? h[0] : 'Other'; };
 
 const inr = (v) => (v == null || isNaN(v) ? '—' : (v < 0 ? '−' : '') + '₹' + Math.round(Math.abs(v)).toLocaleString('en-IN'));
@@ -382,7 +451,58 @@ function rowsInto(tbody, rows, cells, opts = {}) {
   }));
 }
 
-function pick(m) { current = m; renderDetail(); renderPickables(); $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function footRow(id, cells) {
+  const tr = $(id); if (!tr) return;
+  tr.replaceChildren(...cells.map(([t, isNum]) => { const td = document.createElement('td'); if (isNum) td.className = 'num'; td.textContent = t ?? ''; return td; }));
+}
+
+function showTab(name) {
+  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  document.querySelectorAll('.tab').forEach((t) => { t.hidden = t.id !== 'tab-' + name; });
+  if (name === 'overview') renderChart();
+  try { history.replaceState(null, '', name === 'most' ? '#spend-most' : location.pathname); } catch (e) {}
+}
+
+function renderMost() {
+  if (!STATE) return;
+  const sel = $('most-period');
+  const p = sel.value || 'all';
+  const inPeriod = (x) => p === 'all' || (p.length === 4 ? x.month.startsWith(p) : x.month === p);
+  const list = STATE.items.filter((x) => x.counted && inPeriod(x));
+  const nMonths = new Set(list.map((x) => x.month)).size || 1;
+  const total = d3.sum(list, (x) => x.amount);
+  const cats = d3.rollups(list, (v) => ({ total: d3.sum(v, (x) => x.amount), count: v.length }), (x) => x.category)
+    .map(([category, v]) => ({ category, ...v, avg: v.total / nMonths, share: total ? v.total / total : 0 }))
+    .sort((a, b) => b.total - a.total);
+  setText('most-total', inr(total)); setText('most-count', list.length.toLocaleString('en-IN'));
+  setText('most-avg', inr(total / nMonths)); setText('most-topcat', cats[0] ? cats[0].category : '—');
+
+  const max = (cats[0] && cats[0].total) || 1;
+  $('most-bars').replaceChildren(...cats.map((c) => {
+    const row = document.createElement('div'); row.className = 'bar';
+    const n = document.createElement('div'); n.textContent = c.category;
+    const t = document.createElement('div'); t.className = 'track';
+    const f = document.createElement('div'); f.className = 'fill'; f.style.width = (100 * c.total / max).toFixed(1) + '%'; t.append(f);
+    const a = document.createElement('div'); a.className = 'amt'; a.textContent = inr(c.total);
+    const s = document.createElement('span'); s.className = 'pct'; s.textContent = Math.round(100 * c.share) + '%'; a.append(s);
+    row.append(n, t, a); return row;
+  }));
+  rowsInto($('most-cat-body'), cats.map((c, i) => ({ ...c, rank: i + 1 })), [['rank'], ['category'], ['count', 1, (v) => v.toLocaleString('en-IN')], ['avg', 1, inr], ['share', 1, (v) => (100 * v).toFixed(1) + '%'], ['total', 1, inr]]);
+  footRow('most-cat-foot', [[''], ['Total'], [list.length.toLocaleString('en-IN'), 1], [inr(total / nMonths), 1], ['100%', 1], [inr(total), 1]]);
+
+  const items = d3.rollups(list, (v) => ({ count: v.length, total: d3.sum(v, (x) => x.amount), category: v[0].category }), (x) => x.item)
+    .map(([item, v]) => ({ item, ...v })).sort((a, b) => b.total - a.total).slice(0, 25);
+  rowsInto($('most-item-body'), items.map((r, i) => ({ ...r, rank: i + 1 })), [['rank'], ['item'], ['category'], ['count', 1], ['total', 1, inr]]);
+  const itTot = d3.sum(items, (r) => r.total);
+  footRow('most-item-foot', [[''], ['Top 25 total'], [Math.round(100 * itTot / (total || 1)) + '% of all'], [String(d3.sum(items, (r) => r.count)), 1], [inr(itTot), 1]]);
+
+  const big = list.slice().sort((a, b) => b.amount - a.amount).slice(0, 25);
+  rowsInto($('most-big-body'), big, [['date', 0, (v, r) => (v ? v.slice(8, 10) + '-' + v.slice(5, 7) + '-' + v.slice(0, 4) : label(r.month))], ['item'], ['category'], ['amount', 1, inr]]);
+  footRow('most-big-foot', [['Total'], [''], [''], [inr(d3.sum(big, (r) => r.amount)), 1]]);
+}
+
+function pick(m) {
+  showTab('overview'); current = m; renderDetail(); renderPickables(); $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
 function render() {
   const { monthly, fixed, emi } = STATE;
@@ -404,6 +524,15 @@ function render() {
   rowsInto($('years-body'), years, [['year'], ['months', 1], ['fixed', 1, inr], ['variable', 1, inr], ['total', 1, inr], ['avg', 1, inr], ['deficit', 1, inr]]);
   rowsInto($('fixed-body'), fixed, [['item'], ['amount', 1, inr]]);
   rowsInto($('emi-body'), emi, [['loan'], ['due'], ['amount', 1, inr], ['months', 1]]);
+  const yAll = { months: d3.sum(years, (r) => r.months), fixed: d3.sum(years, (r) => r.fixed), variable: d3.sum(years, (r) => r.variable), total: d3.sum(years, (r) => r.total), deficit: d3.sum(years, (r) => r.deficit) };
+  footRow('years-foot', [['All years'], [String(yAll.months), 1], [inr(yAll.fixed), 1], [inr(yAll.variable), 1], [inr(yAll.total), 1], [inr(yAll.total / (yAll.months || 1)), 1], [inr(yAll.deficit), 1]]);
+
+  const ps = $('most-period'); const keep = ps.value;
+  const yearsList = [...new Set(monthly.map((m) => m.year))].reverse();
+  ps.replaceChildren(new Option('All time', 'all'), ...yearsList.map((y) => new Option('Year ' + y, y)), ...monthly.slice().reverse().map((m) => new Option(label(m.month), m.month)));
+  ps.value = keep && [...ps.options].some((o) => o.value === keep) ? keep : 'all';
+  ps.onchange = renderMost;
+  renderMost();
 
   const head = $('matrix-head');
   head.replaceChildren(...['Month', ...CAT_NAMES, 'Daily total'].map((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num'; return th; }));
@@ -422,6 +551,8 @@ function renderPickables() {
   rowsInto($('months-body'), monthly.slice().reverse(), [
     ['month', 0, (v, r) => label(v) + (r.closed ? '' : ' (open)')], ['fixed', 1, inr], ['variable', 1, inr], ['total', 1, inr], ['income', 1, inr], ['deficit', 1, inr]
   ], { onPick: (r) => pick(r.month), cls: (tr, r) => tr.classList.toggle('on', r.month === current) });
+  const cl = monthly.filter((m) => m.closed);
+  footRow('months-foot', [['Total (' + monthly.length + ' months)'], [inr(d3.sum(cl, (m) => m.fixed)), 1], [inr(d3.sum(monthly, (m) => m.variable)), 1], [inr(d3.sum(cl, (m) => m.total)), 1], [inr(d3.sum(monthly, (m) => m.income || 0)), 1], [inr(d3.sum(monthly, (m) => m.deficit || 0)), 1]]);
 
   const mat = d3.rollups(items.filter((x) => x.counted), (v) => d3.rollup(v, (w) => d3.sum(w, (x) => x.amount), (x) => x.category), (x) => x.month)
     .map(([month, byCat]) => { const r = { month, total: d3.sum([...byCat.values()]) }; for (const c of CAT_NAMES) r[c] = byCat.get(c) || 0; return r; })
@@ -438,6 +569,7 @@ function renderPickables() {
       }));
     }
   });
+  footRow('matrix-foot', [['Total'], ...CAT_NAMES.map((c) => [inr(d3.sum(mat, (r) => r[c])), 1]), [inr(d3.sum(mat, (r) => r.total)), 1]]);
 }
 
 function renderDetail() {
@@ -470,6 +602,7 @@ function renderDetail() {
   const top = d3.rollups(counted, (v) => ({ count: v.length, total: d3.sum(v, (x) => x.amount) }), (x) => x.item)
     .map(([item, v]) => ({ item, ...v })).sort((a, b) => b.total - a.total);
   rowsInto($('top-body'), top, [['item'], ['count', 1], ['total', 1, inr]]);
+  footRow('top-foot', [['Total'], [String(d3.sum(top, (r) => r.count)), 1], [inr(d3.sum(top, (r) => r.total)), 1]]);
 
   const dayTotal = d3.rollup(all.filter((x) => x.counted && x.date), (v) => d3.sum(v, (x) => x.amount), (x) => x.date);
   const seen = new Set();
@@ -478,6 +611,7 @@ function renderDetail() {
     ['date', 0, (v) => (v ? v.slice(8, 10) + '-' + v.slice(5, 7) + '-' + v.slice(0, 4) : 'No date')],
     ['item'], ['category'], ['amount', 1, inr], ['day', 1, (v) => (v == null ? '' : inr(v))], ['note']
   ], { cls: (tr, r, i) => { tr.classList.toggle('day', r.day != null && i > 0); tr.classList.toggle('s', !r.counted); } });
+  footRow('items-foot', [['Total paid'], [list.filter((x) => x.counted).length + ' entries'], [''], [inr(d3.sum(list.filter((x) => x.counted), (x) => x.amount)), 1], [''], [list.some((x) => !x.counted) ? 'S entries not counted' : '']]);
 }
 
 function renderChart() {
@@ -524,6 +658,8 @@ function renderChart() {
 }
 
 $('reload').onclick = load;
+document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
+if (location.hash === '#spend-most') showTab('most');
 $('search').addEventListener('input', (e) => { query = e.target.value.trim().toUpperCase(); renderDetail(); });
 let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(renderChart, 150); });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderChart);
