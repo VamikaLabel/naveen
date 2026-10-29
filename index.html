@@ -96,7 +96,7 @@ footer { font-size: .8rem; color: var(--muted); }
 <div class="wrap">
   <header>
     <h1>Naveen</h1>
-    <p class="lede">Household spending, read live from the EXPENDITURE sheet each time this page opens. Totals count what was paid: items marked S are left out, the same way the sheet does it. Latest closed month: <b id="l-month">—</b>, when spending was <b id="l-total">—</b> against income of <b id="l-income">—</b>.</p>
+    <p class="lede">Household spending, read live from the EXPENDITURE sheet each time this page opens. Entries marked S are Vamika Label shop expenses: they are kept out of these totals and shown in their own tab. Latest closed month: <b id="l-month">—</b>, when spending was <b id="l-total">—</b> against income of <b id="l-income">—</b>.</p>
     <div class="status" id="status"><span class="dot"></span><span id="status-text">Loading the sheet…</span><button id="reload" type="button">Refresh</button></div>
   </header>
 
@@ -105,6 +105,7 @@ footer { font-size: .8rem; color: var(--muted); }
   <nav class="tabs" role="tablist" aria-label="Views">
     <button type="button" role="tab" id="tabbtn-overview" data-tab="overview" aria-selected="true">Overview</button>
     <button type="button" role="tab" id="tabbtn-most" data-tab="most" aria-selected="false">Where we spend most</button>
+    <button type="button" role="tab" id="tabbtn-vamika" data-tab="vamika" aria-selected="false">Vamika Label</button>
   </nav>
 
   <div class="tab" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview">
@@ -166,7 +167,7 @@ footer { font-size: .8rem; color: var(--muted); }
 
   <section class="card" id="categories">
     <h2>Where the daily money went, month by month</h2>
-    <p class="note">Daily spending split into categories, worked out from each item's name. Fixed expenses and items marked S are not included. The biggest category each month is highlighted.</p>
+    <p class="note">Daily spending split into categories, worked out from each item's name. Fixed expenses and Vamika Label (S) entries are not included. The biggest category each month is highlighted.</p>
     <div class="scroll"><table class="matrix">
       <thead><tr id="matrix-head"></tr></thead>
       <tbody id="matrix-body"></tbody>
@@ -191,7 +192,7 @@ footer { font-size: .8rem; color: var(--muted); }
     <div class="sum">
       <div><span>Entries </span><b id="d-count">—</b></div>
       <div><span>Paid by Keerthi </span><b id="d-k">—</b></div>
-      <div><span>Marked S, not counted </span><b id="d-s">—</b></div>
+      <div><span>Vamika Label (shop), kept separate </span><b id="d-s">—</b></div>
     </div>
     <div class="grid">
       <div class="card">
@@ -211,7 +212,7 @@ footer { font-size: .8rem; color: var(--muted); }
     </div>
     <div class="card">
       <h2>Every entry, day by day</h2>
-      <p class="note">In the order they appear in the sheet. The day total is shown on the first entry of each date. Entries marked S are listed but not counted.</p>
+      <p class="note">In the order they appear in the sheet. The day total is shown on the first entry of each date. Vamika Label (S) entries are in their own tab.</p>
       <div class="scroll tall"><table>
         <thead><tr><th>Date</th><th>Item</th><th>Category</th><th class="num">Amount</th><th class="num">Day total</th><th>Note</th></tr></thead>
         <tbody id="items-body"></tbody>
@@ -228,7 +229,7 @@ footer { font-size: .8rem; color: var(--muted); }
         <label for="most-period">Period</label>
         <select id="most-period"></select>
       </div>
-      <p class="note">Daily spending only. Fixed expenses and items marked S are left out.</p>
+      <p class="note">Daily household spending only. Fixed expenses and Vamika Label (S) entries are left out.</p>
       <div class="bill">
         <div><span>Daily spending</span><b id="most-total">—</b></div>
         <div><span>Entries</span><b id="most-count">—</b></div>
@@ -270,6 +271,54 @@ footer { font-size: .8rem; color: var(--muted); }
     </section>
   </div>
 
+  <div class="tab" id="tab-vamika" role="tabpanel" aria-labelledby="tabbtn-vamika" hidden>
+    <section class="card">
+      <h2>Vamika Label shop expenses</h2>
+      <p class="note">Every entry marked S in the monthly tabs. These are paid for the shop, so they are kept out of all the household totals on the other tabs.</p>
+      <div class="controls">
+        <label for="vl-period">Period</label>
+        <select id="vl-period"></select>
+      </div>
+      <div class="bill">
+        <div><span>Paid for the shop</span><b id="vl-total">—</b></div>
+        <div><span>Entries</span><b id="vl-count">—</b></div>
+        <div><span>Months with shop spending</span><b id="vl-months">—</b></div>
+        <div><span>Average per month</span><b id="vl-avg">—</b></div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card" id="vl-by-month">
+        <h2>Month-wise</h2>
+        <p class="note">Click a month to see only its entries.</p>
+        <div class="scroll"><table>
+          <thead><tr><th>Month</th><th class="num">Entries</th><th class="num">Total</th></tr></thead>
+          <tbody id="vl-month-body"></tbody>
+          <tfoot><tr id="vl-month-foot"></tr></tfoot>
+        </table></div>
+      </div>
+      <div class="card" id="vl-by-item">
+        <h2>By shop / item</h2>
+        <p class="note">Same names added together, biggest first.</p>
+        <div class="scroll"><table>
+          <thead><tr><th>Shop / item</th><th class="num">Times</th><th class="num">Share</th><th class="num">Total</th></tr></thead>
+          <tbody id="vl-item-body"></tbody>
+          <tfoot><tr id="vl-item-foot"></tr></tfoot>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="card" id="vl-entries">
+      <h2>Every shop entry</h2>
+      <p class="note">In the order they appear in the sheet.</p>
+      <div class="scroll tall"><table>
+        <thead><tr><th>Date</th><th>Shop / item</th><th class="num">Amount</th></tr></thead>
+        <tbody id="vl-entry-body"></tbody>
+        <tfoot><tr id="vl-entry-foot"></tr></tfoot>
+      </table></div>
+    </section>
+  </div>
+
   <footer>Data comes straight from the Google Sheet. To change a number, edit the sheet and press Refresh here.</footer>
 </div>
 
@@ -298,13 +347,12 @@ const CATS = [
   ['Personal care', /SALOON|PEDICURE|HAIR|TONI|NATURALS|NAURALS|EYE ?BROWS|WAX|PARLOUR|SHAMPOO|SOAP|PASTE|CREAM$|LOTION|SHAVING|CUTTING|THREAD|PADS|GYM|MASSAGER/],
   ['Documents & office', /ADHAR|AADHAR|\bPAN\b|MEE SEVA|STAMP|XEROX|PRINT|LAMINATE|STATION|VIS[I]?TING|PARCEL|BLUEDART|^AD$|STICKERS|COVERS$|PAPER PLATE|ALBUM/],
   ['Home & repairs', /URBAN|^UC$|PLUMBER|CARPENTER|\bAC\b|PURIFIER|FILTER|ELECTRICAL|LIGHT|BULB|\bIRON$|RICE COOKER|BLENDER|HEATER|^BED$|MIXER|LOCK|INSTA|REMOTE|CELLS|BATTERY|SWITCH|REGULATOR|\bMCB\b|CC CAM|STOOL|MACHINE|DRY CLEANING|^MOP$|^JAR$|DUSTBIN|PLANTS|WATCHMAN$|BOARD|STOP DOOR|MAGNETS|CLIPS|DISPOSAL|RAT SPRAY|HEAT PRESS|WORKER|ELECTRIC|CASE|SCREEN GAURD|PHONE|MOBILE|BRUSH|TUBE/],
-  ['Shop', /MARKET|^SHOP$/],
-  ['Groceries & milk', /MILK|CURD|BATTER|EGG|VEG|FRUIT|BANANA|KIRANA|GROCER|DMART|RELIANCE|ZEPTO|BLINKIT|NATIONAL MART|RATNADEEP|PUBLIX|LULU|OIL|RICE|ONION|CHICKEN|MUTTON|FISH|PAN+ER|ALLAM|DRY FRUIT|ALMOND$|WATER CAN|^WATER$|GHEE|BREAD|BUNS|ZEELAKARA/],
+  ['Groceries & milk', /MILK|CURD|BATTER|EGG|VEG|FRUIT|BANANA|MARKET|KIRANA|GROCER|DMART|RELIANCE|ZEPTO|BLINKIT|NATIONAL MART|RATNADEEP|PUBLIX|LULU|OIL|RICE|ONION|CHICKEN|MUTTON|FISH|PAN+ER|ALLAM|DRY FRUIT|ALMOND$|WATER CAN|^WATER$|GHEE|BREAD|BUNS|ZEELAKARA/],
   ['Shopping & clothes', /SHOPPING|DRESS|SAREE|ZUDIO|^MAX|AMAZON|FLIPKART|MATC?HING|MATHING|BLOUSE|STI?CHING|SHOES|CHAPPAL|SOCKS|INNERS|NIGHT PANT|RAMRAJ|FORUM|KASAT|CHAWLI|AKHILA|NARSING|MEMSHAB|MEMSABH|DOTHI|BAG|GOLD|SILVER|OLX|MR DIY|R & B|EXHIBITION|AKRUTHI|SNITCH|STYLE UNION|WEST SIDE|SHOP|EASY BUY|DEING|SARUKULU|JNTU|KS BAKERS|VOUCHER/],
   ['Food & eating out', /\bBF\b|LUNCH|DINNER|BIRYANI|PIZZA|SWIGG|ZOMATO|FOOD|TIFFIN|CURR|CHAPATHI|ROTTI|PAROTA|KFC|DOMINOS|ICE CREAM|CREAM STONE|SHAKE|JUICE|^TEA$|CHAT|PANI PURI|SNACKS|REFRESH|BAKERY|CAKE|SWEET|SWRRTS|SAMOSA|PUFF|FRANKIE|MANCHURIA|FRIEDRICE|STARTERS|REASTAURANT|RESTAURANT|HALEEM|PAKODI|KOVA|CHIPS|BURGER|WINES|SODA|DRINK|THUMSUP|COCO|SUGAR CANE|ALMOND HOUSE|CHOCLATES|TGF|JAMMIN|THICJ|BREAK|DARBAR|TEAM TIME|KPN|ANTRAM|CHIPURLU|WATER MELLON|ICE|RUSHIBHA|NAVATHA/],
   ['Family, gifts & fun', /GIFT|BIRTHDAY|PARTY|MARRIAGE|SANTA|^DAD$|PAPA|KEERTHI|KANNA|RAJI|MAHESH|AKHIL|DURGA|FRNDS|MOVIE|IPL|SHOOT|WAITER|VESUKO|GHANSHYAM|MATCH$|OLD AMOUNT|STUFF/]
 ];
-const CAT_NAMES = ['Food & eating out', 'Groceries & milk', 'Shop', 'Fuel & vehicle', 'Travel & trips', 'Medical', 'Shopping & clothes', 'Bills & subscriptions', 'Home & repairs', 'Baby & kids', 'Personal care', 'Pooja & festivals', 'Family, gifts & fun', 'Documents & office', 'Other'];
+const CAT_NAMES = ['Food & eating out', 'Groceries & milk', 'Fuel & vehicle', 'Travel & trips', 'Medical', 'Shopping & clothes', 'Bills & subscriptions', 'Home & repairs', 'Baby & kids', 'Personal care', 'Pooja & festivals', 'Family, gifts & fun', 'Documents & office', 'Other'];
 const categorize = (item) => { const n = item.toUpperCase(); const h = CATS.find(([, re]) => re.test(n)); return h ? h[0] : 'Other'; };
 
 const inr = (v) => (v == null || isNaN(v) ? '—' : (v < 0 ? '−' : '') + '₹' + Math.round(Math.abs(v)).toLocaleString('en-IN'));
@@ -371,7 +419,7 @@ function parseMonth({ ym, rows }) {
     const date = /^\d{2}-\d{2}-\d{4}$/.test(d) ? `${d.slice(6)}-${d.slice(3, 5)}-${d.slice(0, 2)}` : '';
     const counted = mark !== 'S';
     items.push({ id: ym + '-' + i, month: ym, date, item: item.toUpperCase() || '(NO NAME)', amount: amt, counted,
-      category: categorize(item), note: !counted ? 'Marked S, not counted' : (mark === 'K' ? 'Paid by Keerthi' : ''), keerthi: mark === 'K' });
+      category: categorize(item), note: !counted ? 'Vamika Label (shop)' : (mark === 'K' ? 'Paid by Keerthi' : ''), keerthi: mark === 'K' });
   });
   // Summary block: a label cell with its value in the next column.
   const labels = [];
@@ -460,7 +508,7 @@ function showTab(name) {
   document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   document.querySelectorAll('.tab').forEach((t) => { t.hidden = t.id !== 'tab-' + name; });
   if (name === 'overview') renderChart();
-  try { history.replaceState(null, '', name === 'most' ? '#spend-most' : location.pathname); } catch (e) {}
+  try { history.replaceState(null, '', name === 'most' ? '#spend-most' : name === 'vamika' ? '#vamika-label' : location.pathname); } catch (e) {}
 }
 
 function renderMost() {
@@ -501,6 +549,34 @@ function renderMost() {
   footRow('most-big-foot', [['Total'], [''], [''], [inr(d3.sum(big, (r) => r.amount)), 1]]);
 }
 
+function renderVamika() {
+  if (!STATE) return;
+  const p = $('vl-period').value || 'all';
+  const inPeriod = (x) => p === 'all' || (p.length === 4 ? x.month.startsWith(p) : x.month === p);
+  const shopAll = STATE.items.filter((x) => !x.counted);
+  const list = shopAll.filter(inPeriod);
+  const total = d3.sum(list, (x) => x.amount);
+  const nMonths = new Set(list.map((x) => x.month)).size;
+  setText('vl-total', inr(total)); setText('vl-count', String(list.length));
+  setText('vl-months', String(nMonths)); setText('vl-avg', inr(nMonths ? total / nMonths : 0));
+
+  const months = d3.rollups(list, (v) => ({ count: v.length, total: d3.sum(v, (x) => x.amount) }), (x) => x.month)
+    .map(([month, v]) => ({ month, ...v })).sort((a, b) => (a.month < b.month ? 1 : -1));
+  rowsInto($('vl-month-body'), months, [['month', 0, (v) => label(v)], ['count', 1], ['total', 1, inr]], {
+    onPick: (r) => { $('vl-period').value = r.month; renderVamika(); },
+    cls: (tr, r) => tr.classList.toggle('on', r.month === p)
+  });
+  footRow('vl-month-foot', [['Total'], [String(list.length), 1], [inr(total), 1]]);
+
+  const items = d3.rollups(list, (v) => ({ count: v.length, total: d3.sum(v, (x) => x.amount) }), (x) => x.item)
+    .map(([item, v]) => ({ item, ...v, share: total ? v.total / total : 0 })).sort((a, b) => b.total - a.total);
+  rowsInto($('vl-item-body'), items, [['item'], ['count', 1], ['share', 1, (v) => (100 * v).toFixed(1) + '%'], ['total', 1, inr]]);
+  footRow('vl-item-foot', [['Total'], [String(list.length), 1], ['100%', 1], [inr(total), 1]]);
+
+  rowsInto($('vl-entry-body'), list, [['date', 0, (v, r) => (v ? v.slice(8, 10) + '-' + v.slice(5, 7) + '-' + v.slice(0, 4) : label(r.month))], ['item'], ['amount', 1, inr]]);
+  footRow('vl-entry-foot', [['Total'], [list.length + ' entries'], [inr(total), 1]]);
+}
+
 function pick(m) {
   showTab('overview'); current = m; renderDetail(); renderPickables(); $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
@@ -533,6 +609,13 @@ function render() {
   ps.value = keep && [...ps.options].some((o) => o.value === keep) ? keep : 'all';
   ps.onchange = renderMost;
   renderMost();
+  const vs = $('vl-period'); const vkeep = vs.value;
+  const shopMonths = [...new Set(STATE.items.filter((x) => !x.counted).map((x) => x.month))].sort().reverse();
+  const shopYears = [...new Set(shopMonths.map((m) => m.slice(0, 4)))];
+  vs.replaceChildren(new Option('All time', 'all'), ...shopYears.map((y) => new Option('Year ' + y, y)), ...shopMonths.map((m) => new Option(label(m), m)));
+  vs.value = vkeep && [...vs.options].some((o) => o.value === vkeep) ? vkeep : 'all';
+  vs.onchange = renderVamika;
+  renderVamika();
 
   const head = $('matrix-head');
   head.replaceChildren(...['Month', ...CAT_NAMES, 'Daily total'].map((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num'; return th; }));
@@ -579,7 +662,7 @@ function renderDetail() {
   setText('m-fixed', inr(m.fixed)); setText('m-var', inr(m.variable)); setText('m-total', inr(m.total));
   setText('m-inc', inr(m.income)); setText('m-def', inr(m.deficit));
   const all = m.items;
-  setText('d-count', String(all.length));
+  setText('d-count', String(all.filter((x) => x.counted).length));
   setText('d-k', inr(d3.sum(all.filter((x) => x.keerthi), (x) => x.amount)));
   setText('d-s', inr(d3.sum(all.filter((x) => !x.counted), (x) => x.amount)));
 
@@ -606,12 +689,12 @@ function renderDetail() {
 
   const dayTotal = d3.rollup(all.filter((x) => x.counted && x.date), (v) => d3.sum(v, (x) => x.amount), (x) => x.date);
   const seen = new Set();
-  const list = all.map((x) => { const first = x.date && !seen.has(x.date); if (x.date) seen.add(x.date); return { ...x, day: first ? dayTotal.get(x.date) || 0 : null }; }).filter(match);
+  const list = all.filter((x) => x.counted).map((x) => { const first = x.date && !seen.has(x.date); if (x.date) seen.add(x.date); return { ...x, day: first ? dayTotal.get(x.date) || 0 : null }; }).filter((x) => x.counted && match(x));
   rowsInto($('items-body'), list, [
     ['date', 0, (v) => (v ? v.slice(8, 10) + '-' + v.slice(5, 7) + '-' + v.slice(0, 4) : 'No date')],
     ['item'], ['category'], ['amount', 1, inr], ['day', 1, (v) => (v == null ? '' : inr(v))], ['note']
   ], { cls: (tr, r, i) => { tr.classList.toggle('day', r.day != null && i > 0); tr.classList.toggle('s', !r.counted); } });
-  footRow('items-foot', [['Total paid'], [list.filter((x) => x.counted).length + ' entries'], [''], [inr(d3.sum(list.filter((x) => x.counted), (x) => x.amount)), 1], [''], [list.some((x) => !x.counted) ? 'S entries not counted' : '']]);
+  footRow('items-foot', [['Total paid'], [list.filter((x) => x.counted).length + ' entries'], [''], [inr(d3.sum(list.filter((x) => x.counted), (x) => x.amount)), 1], [''], ['']]);
 }
 
 function renderChart() {
@@ -660,6 +743,7 @@ function renderChart() {
 $('reload').onclick = load;
 document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
 if (location.hash === '#spend-most') showTab('most');
+if (location.hash === '#vamika-label') showTab('vamika');
 $('search').addEventListener('input', (e) => { query = e.target.value.trim().toUpperCase(); renderDetail(); });
 let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(renderChart, 150); });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderChart);
