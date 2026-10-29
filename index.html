@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Naveen</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+/* Ledger layout: one column of cards, numbers set like a passbook */
+:root {
+  --bg: #f6f7f4; --panel: #ffffff; --fg: #1d2420; --muted: #66706a; --line: #dde2dc;
+  --accent: #1f6f5c; --muted-bar: #b9c4bd; --income: #c27a1a; --bad: #b3261e; --ok: #1f6f5c;
+  --display: "Fraunces", Georgia, serif; --body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --r: 8px; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121614; --panel: #1a201d; --fg: #e8ece9; --muted: #9aa49e; --line: #2c3530;
+    --accent: #5cc3a6; --muted-bar: #45524b; --income: #e3a650; --bad: #ff8a80; --ok: #5cc3a6; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); font-variant-numeric: tabular-nums; }
+.wrap { max-width: 1200px; margin: 0 auto; padding-block: 28px 60px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); display: grid; gap: 22px; }
+h1 { font-family: var(--display); font-weight: 400; font-size: 2.4rem; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+.lede { color: var(--muted); max-width: 72ch; margin: 4px 0 0; text-wrap: pretty; }
+.lede b { color: var(--fg); font-weight: 600; }
+.status { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: .85rem; color: var(--muted); margin-top: 8px; }
+.status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-bar); display: inline-block; }
+.status.live .dot { background: var(--ok); }
+.status.err .dot { background: var(--bad); }
+button, select, input { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 5px 10px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.tile .k { font-size: .8rem; color: var(--muted); }
+.tile .v { font-family: var(--display); font-size: 1.9rem; line-height: 1.15; }
+.tile .n { font-size: .78rem; color: var(--muted); }
+.bad { color: var(--bad); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.note { font-size: .83rem; color: var(--muted); margin: 0; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .8rem; color: var(--muted); }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.chart { position: relative; min-height: 290px; }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 6px 20px rgba(0,0,0,.15); padding: 6px 10px; font-size: .8rem; white-space: nowrap; z-index: 3; }
+.tip .h { color: var(--muted); margin-bottom: 2px; }
+.scroll { overflow: auto; max-height: 30rem; }
+.tall { max-height: 44rem; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; }
+th { position: sticky; top: 0; background: var(--panel); font-weight: 500; font-size: .78rem; color: var(--muted); z-index: 1; }
+.num { text-align: right; }
+tfoot td { font-weight: 600; border-bottom: none; }
+tr.pick { cursor: pointer; }
+tr.pick:hover td, tr.on td { background: var(--bg); }
+tr.on td { font-weight: 600; }
+tr.day td { border-top: 2px solid var(--line); }
+tr.s td { color: var(--muted); text-decoration: line-through; }
+tr.s td:last-child { text-decoration: none; }
+.matrix th, .matrix td { white-space: nowrap; }
+.matrix td:first-child, .matrix th:first-child { position: sticky; left: 0; background: var(--panel); }
+.matrix th:first-child { z-index: 2; }
+.matrix td.zero { color: var(--muted); }
+.matrix td.hot { font-weight: 600; color: var(--accent); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bill { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; background: var(--bg); }
+.bill div { display: grid; gap: 2px; }
+.bill span { font-size: .78rem; color: var(--muted); }
+.bill b { font-family: var(--display); font-weight: 400; font-size: 1.3rem; }
+.sum { display: flex; flex-wrap: wrap; gap: 18px; font-size: .9rem; }
+.sum span { color: var(--muted); }
+.bars { display: grid; gap: 8px; }
+.bar { display: grid; grid-template-columns: minmax(0, 10rem) 1fr auto; gap: 8px; align-items: center; font-size: .88rem; }
+.track { height: 14px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.fill { height: 100%; border-radius: 4px; background: var(--muted-bar); }
+.bar:first-child .fill { background: var(--accent); }
+.amt { text-align: right; min-width: 7rem; }
+.pct { color: var(--muted); font-size: .76rem; margin-left: 4px; }
+.err-box { border: 1px solid var(--bad); color: var(--bad); border-radius: var(--r); padding: 12px 14px; background: var(--panel); }
+footer { font-size: .8rem; color: var(--muted); }
+@media (max-width: 560px) { h1 { font-size: 2rem; } .tile .v { font-size: 1.6rem; } .bar { grid-template-columns: minmax(0, 7rem) 1fr auto; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Naveen</h1>
+    <p class="lede">Household spending, read live from the EXPENDITURE sheet each time this page opens. Totals count what was paid: items marked S are left out, the same way the sheet does it. Latest closed month: <b id="l-month">—</b>, when spending was <b id="l-total">—</b> against income of <b id="l-income">—</b>.</p>
+    <div class="status" id="status"><span class="dot"></span><span id="status-text">Loading the sheet…</span><button id="reload" type="button">Refresh</button></div>
+  </header>
+
+  <div class="err-box" id="err" hidden></div>
+
+  <section class="tiles" aria-label="Headline figures">
+    <div class="tile"><div class="k">Paid in <span id="t-month">—</span></div><div class="v" id="t-total">—</div><div class="n">Fixed plus daily spending</div></div>
+    <div class="tile"><div class="k">Deficit that month</div><div class="v bad" id="t-deficit">—</div><div class="n">Spending minus salary, as the sheet works it out</div></div>
+    <div class="tile"><div class="k">Paid in <span id="t-year-label">this year</span> so far</div><div class="v" id="t-year">—</div><div class="n">Closed months only</div></div>
+    <div class="tile"><div class="k">Monthly fixed expenses</div><div class="v" id="t-fixed">—</div><div class="n">From the FIXED EXPENDITURE tab</div></div>
+    <div class="tile"><div class="k">EMIs every month</div><div class="v" id="t-emi">—</div><div class="n">From the EMI tab</div></div>
+  </section>
+
+  <section class="card" id="trend">
+    <h2>Spending by month</h2>
+    <p class="note">Fixed and daily spending stacked, with salary marked on each month. A month that is still open shows daily spending only. Click a bar to open that month.</p>
+    <div class="legend"><span><i style="background: var(--muted-bar)"></i>Fixed</span><span><i style="background: var(--accent)"></i>Daily / variable</span><span><i style="background: var(--income)"></i>Income</span></div>
+    <div class="chart" id="chart"></div>
+  </section>
+
+  <section class="grid">
+    <div class="card" id="years">
+      <h2>Year-wise</h2>
+      <p class="note">Closed months only. Average is per month.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Year</th><th class="num">Months</th><th class="num">Fixed</th><th class="num">Daily</th><th class="num">Total paid</th><th class="num">Avg / month</th><th class="num">Deficit</th></tr></thead>
+        <tbody id="years-body"></tbody>
+      </table></div>
+    </div>
+    <div class="card" id="fixed">
+      <h2>Monthly fixed expenses</h2>
+      <p class="note">The plan in the FIXED EXPENDITURE tab.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Item</th><th class="num">Amount</th></tr></thead>
+        <tbody id="fixed-body"></tbody>
+        <tfoot><tr><td>Total</td><td class="num" id="fixed-foot">—</td></tr></tfoot>
+      </table></div>
+    </div>
+    <div class="card" id="emi">
+      <h2>EMIs</h2>
+      <p class="note">From the EMI tab.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Loan</th><th>Due</th><th class="num">EMI</th><th class="num">Months</th></tr></thead>
+        <tbody id="emi-body"></tbody>
+        <tfoot><tr><td>Total</td><td></td><td class="num" id="emi-foot">—</td><td></td></tr></tfoot>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="card" id="months">
+    <h2>Month-wise</h2>
+    <p class="note">Figures as each month's tab states them. Click a month to see its statement.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Month</th><th class="num">Fixed</th><th class="num">Daily</th><th class="num">Total paid</th><th class="num">Income</th><th class="num">Deficit</th></tr></thead>
+      <tbody id="months-body"></tbody>
+    </table></div>
+  </section>
+
+  <section class="card" id="categories">
+    <h2>Where the daily money went, month by month</h2>
+    <p class="note">Daily spending split into categories, worked out from each item's name. Fixed expenses and items marked S are not included. The biggest category each month is highlighted.</p>
+    <div class="scroll"><table class="matrix">
+      <thead><tr id="matrix-head"></tr></thead>
+      <tbody id="matrix-body"></tbody>
+    </table></div>
+  </section>
+
+  <section class="card" id="detail">
+    <h2>Month statement</h2>
+    <div class="controls">
+      <label for="month">Month</label>
+      <select id="month"></select>
+      <input id="search" type="search" placeholder="Search items or categories" aria-label="Search items">
+    </div>
+    <div class="bill">
+      <div><span>Fixed expenses</span><b id="m-fixed">—</b></div>
+      <div><span>Daily spending</span><b id="m-var">—</b></div>
+      <div><span>Total paid</span><b id="m-total">—</b></div>
+      <div><span>Income</span><b id="m-inc">—</b></div>
+      <div><span>Deficit</span><b class="bad" id="m-def">—</b></div>
+    </div>
+    <div class="sum">
+      <div><span>Entries </span><b id="d-count">—</b></div>
+      <div><span>Paid by Keerthi </span><b id="d-k">—</b></div>
+      <div><span>Marked S, not counted </span><b id="d-s">—</b></div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>By category</h2>
+        <p class="note">Daily spending this month, biggest first.</p>
+        <div class="bars" id="cat-bars"></div>
+      </div>
+      <div class="card">
+        <h2>Biggest items</h2>
+        <p class="note">Same item names added together.</p>
+        <div class="scroll"><table>
+          <thead><tr><th>Item</th><th class="num">Times</th><th class="num">Total</th></tr></thead>
+          <tbody id="top-body"></tbody>
+        </table></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Every entry, day by day</h2>
+      <p class="note">In the order they appear in the sheet. The day total is shown on the first entry of each date. Entries marked S are listed but not counted.</p>
+      <div class="scroll tall"><table>
+        <thead><tr><th>Date</th><th>Item</th><th>Category</th><th class="num">Amount</th><th class="num">Day total</th><th>Note</th></tr></thead>
+        <tbody id="items-body"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <footer>Data comes straight from the Google Sheet. To change a number, edit the sheet and press Refresh here.</footer>
+</div>
+
+<script>
+const SHEET_ID = '1JcD1lIWo8FRIvHxAlk6vs0HdMd7Sf1dukG2WvkFVdjo';
+const FIRST_MONTH = '2025-01';
+// Tab names as they exist in the sheet; later months are found by trying the usual spellings.
+const KNOWN_TABS = {
+  '2025-01': 'JAN-2025', '2025-02': 'FEB-2025', '2025-03': 'MAR-2025', '2025-04': 'APRIL-2025', '2025-05': 'MAY-2025',
+  '2025-06': 'JUNE-2025', '2025-07': 'JULY-2025', '2025-08': 'AUGUST-2025', '2025-09': 'SEPTEMBER-2025', '2025-10': 'OCTOBER-2025',
+  '2025-11': 'NOVEMBER-2025', '2025-12': 'DECEMBER-2025', '2026-01': 'JANUARY-2026', '2026-02': 'FEBRUARY-2026', '2026-03': 'MARCH-2026',
+  '2026-04': 'APRIL -2026', '2026-05': 'MAY-2026', '2026-06': 'JUNE-2026', '2026-07': 'JULY-2026', '2026-08': 'AUGUST-2026',
+  '2026-09': 'SEPTEMBER-2026', '2026-10': 'OCTOBER-2026'
+};
+const FULL = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+const SHORT = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const CATS = [
+  ['Bills & subscriptions', /JIO|RECHARGE|CURRENT|HP GAS|^GAS$|GAS PERSON|WIFI|PRIME|YOUTUBE|HOTSTAR|\bAHA\b|ETV|KUKU|G SUITE|GOOGLE DRIVE|G DRIVE|ANTIVIRUS|\bSIM\b|IT FILING|NEWS PAPER/],
+  ['Fuel & vehicle', /DIESEL|PETROL|FASTAG|CAR |CAR$|BIKE|CHALLAN|\bPUC\b|\bRTA\b|HELMET|DASH CAM|ANNUAL PASS|RADIUM|DL LICENSE|WIPERS/],
+  ['Medical', /HOSPITAL|MEDIC|MED ?PLUS|APOLLO|PHARMACY|TEST|\bLAB\b|BLOOD|INJECTION|VACCINE|PHYSIO|TABLET|SYRUP|DROP|YASHODHA|CORDLIFE|HEALTH|INSURANCE|DRESSING|ENO|HEAD PROTECT/],
+  ['Baby & kids', /DIAPER|DAIPER|BABY|TOY|FIRCT CRY|ME ?ME|SEBAMED|SIPPER|PIGGY|KITES|BALLON|TEDIBAR/],
+  ['Pooja & festivals', /POOJA|TEMPLE|HUNDI|FLOWER|DIYA|ANADANAM|CHANDA|PANTULU|ASTROLOGY|DARSHAN|DIVINE|KALYANAM|MAMUL|FESTIVAL|CRACKERS|DECORATION|GUMADIKAYA|DEEPAM|SILVER IDOL|TTD|BASARA/],
+  ['Travel & trips', /RAPIDO|UBER|\bOLA\b|AUTO|\bCAB\b|BUS|TRAIN|FLIGHT|METRO|BLA BLA|TIRUPATHI|TIRPATHI|ROOM|HOTEL|PORTER|RIDE|TRIP|KRISHNAPATNAM|SWARNAGIRI/],
+  ['Personal care', /SALOON|PEDICURE|HAIR|TONI|NATURALS|NAURALS|EYE ?BROWS|WAX|PARLOUR|SHAMPOO|SOAP|PASTE|CREAM$|LOTION|SHAVING|CUTTING|THREAD|PADS|GYM|MASSAGER/],
+  ['Documents & office', /ADHAR|AADHAR|\bPAN\b|MEE SEVA|STAMP|XEROX|PRINT|LAMINATE|STATION|VIS[I]?TING|PARCEL|BLUEDART|^AD$|STICKERS|COVERS$|PAPER PLATE|ALBUM/],
+  ['Home & repairs', /URBAN|^UC$|PLUMBER|CARPENTER|\bAC\b|PURIFIER|FILTER|ELECTRICAL|LIGHT|BULB|\bIRON$|RICE COOKER|BLENDER|HEATER|^BED$|MIXER|LOCK|INSTA|REMOTE|CELLS|BATTERY|SWITCH|REGULATOR|\bMCB\b|CC CAM|STOOL|MACHINE|DRY CLEANING|^MOP$|^JAR$|DUSTBIN|PLANTS|WATCHMAN$|BOARD|STOP DOOR|MAGNETS|CLIPS|DISPOSAL|RAT SPRAY|HEAT PRESS|WORKER|ELECTRIC|CASE|SCREEN GAURD|PHONE|MOBILE|BRUSH|TUBE/],
+  ['Groceries & milk', /MILK|CURD|BATTER|EGG|VEG|FRUIT|BANANA|MARKET|KIRANA|GROCER|DMART|RELIANCE|ZEPTO|BLINKIT|NATIONAL MART|RATNADEEP|PUBLIX|LULU|OIL|RICE|ONION|CHICKEN|MUTTON|FISH|PAN+ER|ALLAM|DRY FRUIT|ALMOND$|WATER CAN|^WATER$|GHEE|BREAD|BUNS|ZEELAKARA/],
+  ['Shopping & clothes', /SHOPPING|DRESS|SAREE|ZUDIO|^MAX|AMAZON|FLIPKART|MATC?HING|MATHING|BLOUSE|STI?CHING|SHOES|CHAPPAL|SOCKS|INNERS|NIGHT PANT|RAMRAJ|FORUM|KASAT|CHAWLI|AKHILA|NARSING|MEMSHAB|MEMSABH|DOTHI|BAG|GOLD|SILVER|OLX|MR DIY|R & B|EXHIBITION|AKRUTHI|SNITCH|STYLE UNION|WEST SIDE|SHOP|EASY BUY|DEING|SARUKULU|JNTU|KS BAKERS|VOUCHER/],
+  ['Food & eating out', /\bBF\b|LUNCH|DINNER|BIRYANI|PIZZA|SWIGG|ZOMATO|FOOD|TIFFIN|CURR|CHAPATHI|ROTTI|PAROTA|KFC|DOMINOS|ICE CREAM|CREAM STONE|SHAKE|JUICE|^TEA$|CHAT|PANI PURI|SNACKS|REFRESH|BAKERY|CAKE|SWEET|SWRRTS|SAMOSA|PUFF|FRANKIE|MANCHURIA|FRIEDRICE|STARTERS|REASTAURANT|RESTAURANT|HALEEM|PAKODI|KOVA|CHIPS|BURGER|WINES|SODA|DRINK|THUMSUP|COCO|SUGAR CANE|ALMOND HOUSE|CHOCLATES|TGF|JAMMIN|THICJ|BREAK|DARBAR|TEAM TIME|KPN|ANTRAM|CHIPURLU|WATER MELLON|ICE|RUSHIBHA|NAVATHA/],
+  ['Family, gifts & fun', /GIFT|BIRTHDAY|PARTY|MARRIAGE|SANTA|^DAD$|PAPA|KEERTHI|KANNA|RAJI|MAHESH|AKHIL|DURGA|FRNDS|MOVIE|IPL|SHOOT|WAITER|VESUKO|GHANSHYAM|MATCH$|OLD AMOUNT|STUFF/]
+];
+const CAT_NAMES = ['Food & eating out', 'Groceries & milk', 'Fuel & vehicle', 'Travel & trips', 'Medical', 'Shopping & clothes', 'Bills & subscriptions', 'Home & repairs', 'Baby & kids', 'Personal care', 'Pooja & festivals', 'Family, gifts & fun', 'Documents & office', 'Other'];
+const categorize = (item) => { const n = item.toUpperCase(); const h = CATS.find(([, re]) => re.test(n)); return h ? h[0] : 'Other'; };
+
+const inr = (v) => (v == null || isNaN(v) ? '—' : (v < 0 ? '−' : '') + '₹' + Math.round(Math.abs(v)).toLocaleString('en-IN'));
+const label = (m) => MON[Number(m.slice(5, 7)) - 1] + ' ' + m.slice(0, 4);
+const num = (s) => { if (s == null) return null; const n = parseFloat(String(s).replace(/[,₹\s]/g, '')); return isNaN(n) ? null : n; };
+const $ = (id) => document.getElementById(id);
+const setText = (id, t) => { const e = $(id); if (e) e.textContent = t; };
+
+function parseCSV(text) {
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+    else if (c !== '\r') cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+async function fetchTab(name) {
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&headers=0&sheet=${encodeURIComponent(name)}&_=${Date.now()}`;
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const t = await r.text();
+  if (/^\s*</.test(t)) throw new Error('not-public');
+  return parseCSV(t);
+}
+
+function monthsUntilNow() {
+  const out = []; const now = new Date();
+  let y = Number(FIRST_MONTH.slice(0, 4)), m = Number(FIRST_MONTH.slice(5, 7));
+  while (y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth() + 1)) {
+    out.push(y + '-' + String(m).padStart(2, '0'));
+    if (++m > 12) { m = 1; y++; }
+  }
+  return out;
+}
+
+// A tab belongs to a month only if its dates are in that month (guards against Google returning another tab).
+const belongsTo = (rows, ym) => {
+  const tag = '-' + ym.slice(5, 7) + '-' + ym.slice(0, 4);
+  return rows.some((r) => (r[0] || '').trim().endsWith(tag));
+};
+
+async function loadMonth(ym) {
+  const mi = Number(ym.slice(5, 7)) - 1, y = ym.slice(0, 4);
+  const names = [KNOWN_TABS[ym], `${FULL[mi]}-${y}`, `${SHORT[mi]}-${y}`, `${FULL[mi]} -${y}`, `${SHORT[mi]} -${y}`].filter((v, i, a) => v && a.indexOf(v) === i);
+  for (const n of names) {
+    try { const rows = await fetchTab(n); if (belongsTo(rows, ym)) return { ym, tab: n, rows }; }
+    catch (e) { if (e.message === 'not-public') throw e; }
+  }
+  return null;
+}
+
+function parseMonth({ ym, rows }) {
+  const items = [];
+  rows.slice(1).forEach((r, i) => {
+    const d = (r[0] || '').trim(), item = (r[1] || '').trim().replace(/\s+/g, ' '), amt = num(r[2]);
+    if (amt == null || /^total/i.test(d) || /^total/i.test(item) || (!d && !item)) return;
+    const mark = (r[3] || '').trim().toUpperCase();
+    const date = /^\d{2}-\d{2}-\d{4}$/.test(d) ? `${d.slice(6)}-${d.slice(3, 5)}-${d.slice(0, 2)}` : '';
+    const counted = mark !== 'S';
+    items.push({ id: ym + '-' + i, month: ym, date, item: item.toUpperCase() || '(NO NAME)', amount: amt, counted,
+      category: categorize(item), note: !counted ? 'Marked S, not counted' : (mark === 'K' ? 'Paid by Keerthi' : ''), keerthi: mark === 'K' });
+  });
+  // Summary block: a label cell with its value in the next column.
+  const labels = [];
+  rows.forEach((r) => r.forEach((c, j) => { if (j >= 3 && /[A-Z]/i.test(c || '')) labels.push({ t: c.trim().toUpperCase(), v: num(r[j + 1]), col: j + 1, row: r }); }));
+  let fixed = null, variable = null, income = null, deficit = null;
+  const fx = labels.find((l) => l.t.startsWith('MONTHLY FIXED EXPENDITURE'));
+  if (fx) { fixed = fx.v; const vr = labels.find((l) => l !== fx && /MONTHLY/.test(l.t)); variable = vr ? vr.v : null; }
+  else { const vr = labels.find((l) => l.t === 'TOTAL MONTHLY EXPENSES'); const f2 = labels.find((l) => l !== vr && /MONTHLY/.test(l.t)); variable = vr ? vr.v : null; fixed = f2 ? f2.v : null; }
+  const df = labels.find((l) => /^DEF(I)?CIT$/.test(l.t));
+  deficit = df ? df.v : null;
+  if (fx || df) {
+    const col = (fx || df).col;
+    const inc = rows.map((r) => num(r[col])).find((v) => v != null && v <= -50000);
+    income = inc != null ? -inc : null;
+  }
+  const closed = fixed != null && variable != null;
+  const countedSum = d3.sum(items.filter((x) => x.counted), (x) => x.amount);
+  if (variable == null) variable = countedSum;
+  return { month: ym, year: ym.slice(0, 4), fixed, variable, total: closed ? fixed + variable : null, income, deficit, closed, items };
+}
+
+function parseFixed(rows) {
+  return rows.filter((r) => /^\d+$/.test((r[0] || '').trim()) && num(r[2]) != null).map((r) => ({ item: r[1].trim(), amount: num(r[2]) }));
+}
+function parseEmi(rows) {
+  return rows.filter((r) => /^\d+$/.test((r[0] || '').trim()) && num(r[3]) != null).map((r) => ({ loan: r[1].trim(), due: (r[2] || '').trim(), amount: num(r[3]), months: (r[4] || '').trim() }));
+}
+
+let STATE = null;
+let current = null;
+let query = '';
+
+async function load() {
+  $('status').className = 'status'; setText('status-text', 'Loading the sheet…'); $('err').hidden = true;
+  try {
+    const months = monthsUntilNow();
+    const [fixedRows, emiRows, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), ...months.map(loadMonth)]);
+    const monthly = ms.filter(Boolean).map(parseMonth);
+    STATE = { monthly, fixed: parseFixed(fixedRows), emi: parseEmi(emiRows), items: monthly.flatMap((m) => m.items) };
+    if (!current || !monthly.some((m) => m.month === current)) current = monthly.length ? monthly[monthly.length - 1].month : null;
+    render();
+    $('status').className = 'status live';
+    setText('status-text', `Live from the sheet · ${monthly.length} months, ${STATE.items.length} entries · loaded ${new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`);
+  } catch (e) {
+    $('status').className = 'status err';
+    setText('status-text', 'Could not read the sheet');
+    $('err').hidden = false;
+    $('err').textContent = e.message === 'not-public' || /Failed to fetch|NetworkError|Load failed/i.test(e.message)
+      ? 'The Google Sheet is not open for viewing. In the sheet, set Share → General access → "Anyone with the link" → Viewer, then press Refresh.'
+      : 'Something went wrong reading the sheet (' + e.message + '). Press Refresh to try again.';
+  }
+}
+
+function rowsInto(tbody, rows, cells, opts = {}) {
+  tbody.replaceChildren(...rows.map((r, i) => {
+    const tr = document.createElement('tr');
+    if (opts.onPick) { tr.className = 'pick'; tr.onclick = () => opts.onPick(r); }
+    if (opts.cls) opts.cls(tr, r, i);
+    for (const [f, isNum, fmt] of cells) {
+      const td = document.createElement('td');
+      if (isNum) td.className = 'num';
+      td.textContent = fmt ? fmt(r[f], r) : (r[f] ?? '');
+      tr.append(td);
+    }
+    return tr;
+  }));
+}
+
+function pick(m) { current = m; renderDetail(); renderPickables(); $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+
+function render() {
+  const { monthly, fixed, emi } = STATE;
+  const closed = monthly.filter((m) => m.closed);
+  const last = closed[closed.length - 1];
+  if (last) {
+    setText('l-month', label(last.month)); setText('t-month', label(last.month));
+    setText('l-total', inr(last.total)); setText('t-total', inr(last.total));
+    setText('l-income', inr(last.income)); setText('t-deficit', inr(last.deficit));
+  }
+  const years = d3.rollups(closed, (v) => ({ months: v.length, fixed: d3.sum(v, (m) => m.fixed), variable: d3.sum(v, (m) => m.variable), total: d3.sum(v, (m) => m.total), deficit: d3.sum(v, (m) => m.deficit || 0) }), (m) => m.year)
+    .map(([year, v]) => ({ year, ...v, avg: v.total / v.months }));
+  const ly = years[years.length - 1];
+  if (ly) { setText('t-year-label', ly.year); setText('t-year', inr(ly.total)); }
+  const fixedSum = d3.sum(fixed, (r) => r.amount), emiSum = d3.sum(emi, (r) => r.amount);
+  setText('t-fixed', inr(fixedSum)); setText('fixed-foot', inr(fixedSum));
+  setText('t-emi', inr(emiSum)); setText('emi-foot', inr(emiSum));
+
+  rowsInto($('years-body'), years, [['year'], ['months', 1], ['fixed', 1, inr], ['variable', 1, inr], ['total', 1, inr], ['avg', 1, inr], ['deficit', 1, inr]]);
+  rowsInto($('fixed-body'), fixed, [['item'], ['amount', 1, inr]]);
+  rowsInto($('emi-body'), emi, [['loan'], ['due'], ['amount', 1, inr], ['months', 1]]);
+
+  const head = $('matrix-head');
+  head.replaceChildren(...['Month', ...CAT_NAMES, 'Daily total'].map((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num'; return th; }));
+
+  const sel = $('month');
+  sel.replaceChildren(...monthly.slice().reverse().map((m) => new Option(label(m.month) + (m.closed ? '' : ' (open)'), m.month)));
+  sel.onchange = () => { current = sel.value; renderDetail(); renderPickables(); };
+
+  renderPickables();
+  renderChart();
+  renderDetail();
+}
+
+function renderPickables() {
+  const { monthly, items } = STATE;
+  rowsInto($('months-body'), monthly.slice().reverse(), [
+    ['month', 0, (v, r) => label(v) + (r.closed ? '' : ' (open)')], ['fixed', 1, inr], ['variable', 1, inr], ['total', 1, inr], ['income', 1, inr], ['deficit', 1, inr]
+  ], { onPick: (r) => pick(r.month), cls: (tr, r) => tr.classList.toggle('on', r.month === current) });
+
+  const mat = d3.rollups(items.filter((x) => x.counted), (v) => d3.rollup(v, (w) => d3.sum(w, (x) => x.amount), (x) => x.category), (x) => x.month)
+    .map(([month, byCat]) => { const r = { month, total: d3.sum([...byCat.values()]) }; for (const c of CAT_NAMES) r[c] = byCat.get(c) || 0; return r; })
+    .sort((a, b) => (a.month < b.month ? 1 : -1));
+  rowsInto($('matrix-body'), mat, [['month', 0, (v) => label(v)], ...CAT_NAMES.map((c) => [c, 1, (v) => (v ? inr(v) : '–')]), ['total', 1, inr]], {
+    onPick: (r) => pick(r.month),
+    cls: (tr, r) => {
+      tr.classList.toggle('on', r.month === current);
+      const top = Math.max(...CAT_NAMES.map((c) => r[c]));
+      requestAnimationFrame(() => tr.querySelectorAll('td').forEach((td, j) => {
+        if (j === 0 || j > CAT_NAMES.length) return;
+        const v = r[CAT_NAMES[j - 1]];
+        td.classList.toggle('zero', !v); td.classList.toggle('hot', v > 0 && v === top);
+      }));
+    }
+  });
+}
+
+function renderDetail() {
+  if (!STATE || !current) return;
+  $('month').value = current;
+  const m = STATE.monthly.find((x) => x.month === current);
+  setText('m-fixed', inr(m.fixed)); setText('m-var', inr(m.variable)); setText('m-total', inr(m.total));
+  setText('m-inc', inr(m.income)); setText('m-def', inr(m.deficit));
+  const all = m.items;
+  setText('d-count', String(all.length));
+  setText('d-k', inr(d3.sum(all.filter((x) => x.keerthi), (x) => x.amount)));
+  setText('d-s', inr(d3.sum(all.filter((x) => !x.counted), (x) => x.amount)));
+
+  const q = query;
+  const match = (x) => !q || x.item.includes(q) || x.category.toUpperCase().includes(q);
+  const counted = all.filter((x) => x.counted && match(x));
+
+  const cats = d3.rollups(counted, (v) => d3.sum(v, (x) => x.amount), (x) => x.category).sort((a, b) => b[1] - a[1]);
+  const csum = d3.sum(cats, (c) => c[1]) || 1, cmax = (cats[0] && cats[0][1]) || 1;
+  $('cat-bars').replaceChildren(...cats.map(([c, v]) => {
+    const row = document.createElement('div'); row.className = 'bar';
+    const n = document.createElement('div'); n.textContent = c;
+    const t = document.createElement('div'); t.className = 'track';
+    const f = document.createElement('div'); f.className = 'fill'; f.style.width = (100 * v / cmax).toFixed(1) + '%'; t.append(f);
+    const a = document.createElement('div'); a.className = 'amt'; a.textContent = inr(v);
+    const p = document.createElement('span'); p.className = 'pct'; p.textContent = Math.round(100 * v / csum) + '%'; a.append(p);
+    row.append(n, t, a); return row;
+  }));
+
+  const top = d3.rollups(counted, (v) => ({ count: v.length, total: d3.sum(v, (x) => x.amount) }), (x) => x.item)
+    .map(([item, v]) => ({ item, ...v })).sort((a, b) => b.total - a.total);
+  rowsInto($('top-body'), top, [['item'], ['count', 1], ['total', 1, inr]]);
+
+  const dayTotal = d3.rollup(all.filter((x) => x.counted && x.date), (v) => d3.sum(v, (x) => x.amount), (x) => x.date);
+  const seen = new Set();
+  const list = all.map((x) => { const first = x.date && !seen.has(x.date); if (x.date) seen.add(x.date); return { ...x, day: first ? dayTotal.get(x.date) || 0 : null }; }).filter(match);
+  rowsInto($('items-body'), list, [
+    ['date', 0, (v) => (v ? v.slice(8, 10) + '-' + v.slice(5, 7) + '-' + v.slice(0, 4) : 'No date')],
+    ['item'], ['category'], ['amount', 1, inr], ['day', 1, (v) => (v == null ? '' : inr(v))], ['note']
+  ], { cls: (tr, r, i) => { tr.classList.toggle('day', r.day != null && i > 0); tr.classList.toggle('s', !r.counted); } });
+}
+
+function renderChart() {
+  const el = $('chart'); el.replaceChildren();
+  if (!STATE) return;
+  const rows = STATE.monthly.map((m) => ({ m: m.month, fixed: m.closed ? m.fixed : 0, variable: m.variable || 0, income: m.income, open: !m.closed }));
+  const W = Math.max(300, el.clientWidth), H = 290;
+  const css = getComputedStyle(document.documentElement);
+  const col = (n) => css.getPropertyValue(n).trim();
+  const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).style('display', 'block');
+  const maxV = d3.max(rows, (r) => Math.max(r.fixed + r.variable, r.income || 0)) || 1;
+  const y = d3.scaleLinear([0, maxV * 1.05], [H - 28, 8]).nice();
+  const ml = 52;
+  const x = d3.scaleBand(rows.map((r) => r.m), [ml, W - 4]).padding(0.22);
+  svg.append('g').selectAll('line').data(y.ticks(5)).join('line').attr('x1', ml).attr('x2', W - 4).attr('y1', y).attr('y2', y).attr('stroke', col('--line'));
+  svg.append('g').selectAll('text').data(y.ticks(5)).join('text').attr('x', ml - 8).attr('y', (v) => y(v) + 4).attr('text-anchor', 'end')
+    .attr('fill', col('--muted')).style('font-size', '11px').text((v) => '₹' + v / 1000 + 'k');
+  const step = Math.ceil(rows.length / Math.max(1, Math.floor((W - ml) / 56)));
+  svg.append('g').selectAll('text').data(rows.filter((r, i) => i % step === 0)).join('text')
+    .attr('x', (r) => x(r.m) + x.bandwidth() / 2).attr('y', H - 8).attr('text-anchor', 'middle').attr('fill', col('--muted')).style('font-size', '11px')
+    .text((r) => MON[Number(r.m.slice(5, 7)) - 1] + " '" + r.m.slice(2, 4));
+  const bw = Math.min(32, x.bandwidth()), bx = (r) => x(r.m) + (x.bandwidth() - bw) / 2;
+  svg.append('g').selectAll('rect').data(rows).join('rect').attr('x', bx).attr('width', bw).attr('y', (r) => y(r.fixed)).attr('height', (r) => y(0) - y(r.fixed)).attr('fill', col('--muted-bar'));
+  svg.append('g').selectAll('rect').data(rows).join('rect').attr('x', bx).attr('width', bw).attr('y', (r) => y(r.fixed + r.variable))
+    .attr('height', (r) => y(r.fixed) - y(r.fixed + r.variable)).attr('fill', col('--accent')).attr('opacity', (r) => (r.open ? 0.5 : 1)).attr('rx', 2);
+  svg.append('g').selectAll('line').data(rows.filter((r) => r.income != null)).join('line')
+    .attr('x1', (r) => bx(r) - 3).attr('x2', (r) => bx(r) + bw + 3).attr('y1', (r) => y(r.income)).attr('y2', (r) => y(r.income))
+    .attr('stroke', col('--income')).attr('stroke-width', 2.5).attr('stroke-linecap', 'round');
+  const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true; el.append(tip);
+  const line = (n, v) => { const d = document.createElement('div'); d.textContent = n + ': ' + inr(v); return d; };
+  svg.append('g').selectAll('rect').data(rows).join('rect')
+    .attr('x', (r) => x(r.m) - (x.step() * x.paddingInner()) / 2).attr('width', x.step()).attr('y', 0).attr('height', H - 24).attr('fill', 'transparent').style('cursor', 'pointer')
+    .on('mousemove', (ev, r) => {
+      const h = document.createElement('div'); h.className = 'h'; h.textContent = label(r.m) + (r.open ? ' (open)' : '');
+      const parts = [h]; if (!r.open) parts.push(line('Fixed', r.fixed)); parts.push(line('Daily', r.variable));
+      if (!r.open) parts.push(line('Total paid', r.fixed + r.variable)); if (r.income != null) parts.push(line('Income', r.income));
+      tip.replaceChildren(...parts); tip.hidden = false;
+      const [px, py] = d3.pointer(ev, el);
+      tip.style.left = Math.min(Math.max(0, px + 12), el.clientWidth - tip.offsetWidth) + 'px';
+      tip.style.top = Math.max(0, py - 70) + 'px';
+    })
+    .on('mouseleave', () => { tip.hidden = true; })
+    .on('click', (ev, r) => pick(r.m));
+}
+
+$('reload').onclick = load;
+$('search').addEventListener('input', (e) => { query = e.target.value.trim().toUpperCase(); renderDetail(); });
+let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(renderChart, 150); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderChart);
+load();
+</script>
+</body>
+</html>
