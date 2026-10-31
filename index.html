@@ -79,6 +79,10 @@ tr.s td:last-child { text-decoration: none; }
 .track { height: 14px; background: var(--bg); border-radius: 4px; overflow: hidden; }
 .fill { height: 100%; border-radius: 4px; background: var(--muted-bar); }
 .bar:first-child .fill { background: var(--accent); }
+.bar.click { cursor: pointer; border-radius: 4px; }
+.bar.click:hover > div:first-child, .bar.click:focus-visible > div:first-child { color: var(--accent); text-decoration: underline; }
+.matrix th.click, .matrix td.click { cursor: pointer; }
+.matrix th.click:hover, .matrix td.click:hover { color: var(--accent); text-decoration: underline; }
 .amt { text-align: right; min-width: 7rem; }
 .pct { color: var(--muted); font-size: .76rem; margin-left: 4px; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
@@ -194,7 +198,7 @@ footer { font-size: .8rem; color: var(--muted); }
 
   <section class="card" id="categories">
     <h2>Where the daily money went, month by month</h2>
-    <p class="note">Daily spending split into categories, worked out from each item's name. Fixed expenses and Vamika Label (S) entries are not included. The biggest category each month is highlighted.</p>
+    <p class="note">Daily spending split into categories, worked out from each item's name. Fixed expenses and Vamika Label (S) entries are not included. The biggest category each month is highlighted. Click a category name to see all its transactions, or an amount to see that month's.</p>
     <div class="scroll"><table class="matrix">
       <thead><tr id="matrix-head"></tr></thead>
       <tbody id="matrix-body"></tbody>
@@ -224,7 +228,7 @@ footer { font-size: .8rem; color: var(--muted); }
     <div class="grid">
       <div class="card">
         <h2>By category</h2>
-        <p class="note">Daily spending this month, biggest first.</p>
+        <p class="note">Daily spending this month, biggest first. Click a category to see its transactions.</p>
         <div class="bars" id="cat-bars"></div>
       </div>
       <div class="card">
@@ -267,12 +271,35 @@ footer { font-size: .8rem; color: var(--muted); }
 
     <section class="card" id="most-cats">
       <h2>Categories, biggest first</h2>
-      <p class="note">How much each category took in the chosen period and its share of daily spending.</p>
+      <p class="note">How much each category took in the chosen period and its share of daily spending. Click any category to see all its transactions.</p>
       <div class="bars" id="most-bars"></div>
       <div class="scroll"><table>
         <thead><tr><th>#</th><th>Category</th><th class="num">Entries</th><th class="num">Avg / month</th><th class="num">Share</th><th class="num">Total</th></tr></thead>
         <tbody id="most-cat-body"></tbody>
         <tfoot><tr id="most-cat-foot"></tr></tfoot>
+      </table></div>
+    </section>
+
+    <section class="card" id="most-cat-entries" hidden>
+      <div class="controls" style="justify-content: space-between">
+        <h2 id="ce-title">Category</h2>
+        <button type="button" id="ce-close">Close</button>
+      </div>
+      <p class="note" id="ce-note"></p>
+      <div class="controls">
+        <label for="ce-cat">Category</label>
+        <select id="ce-cat"></select>
+      </div>
+      <div class="bill">
+        <div><span>Total</span><b id="ce-total">—</b></div>
+        <div><span>Entries</span><b id="ce-count">—</b></div>
+        <div><span>Average per month</span><b id="ce-avg">—</b></div>
+        <div><span>Biggest entry</span><b id="ce-big">—</b></div>
+      </div>
+      <div class="scroll tall"><table>
+        <thead><tr><th>Date</th><th>Item</th><th class="num">Amount</th><th>Note</th></tr></thead>
+        <tbody id="ce-body"></tbody>
+        <tfoot><tr id="ce-foot"></tr></tfoot>
       </table></div>
     </section>
 
@@ -587,6 +614,37 @@ function showTab(name) {
   try { history.replaceState(null, '', hash || location.pathname); } catch (e) {}
 }
 
+let selCat = null;
+const clickable = (el, fn) => { el.classList.add('click'); el.tabIndex = 0; el.setAttribute('role', 'button');
+  el.onclick = (e) => { e.stopPropagation(); fn(); }; el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } }; };
+
+function showCategory(cat, period) {
+  selCat = cat;
+  const sel = $('most-period');
+  if (period && [...sel.options].some((o) => o.value === period)) sel.value = period;
+  showTab('most'); renderMost();
+  $('most-cat-entries').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderCatEntries(list, p) {
+  const box = $('most-cat-entries');
+  box.hidden = !selCat; if (!selCat) return;
+  const cs = $('ce-cat');
+  if (cs.options.length !== CAT_NAMES.length) cs.replaceChildren(...CAT_NAMES.map((c) => new Option(c, c)));
+  cs.value = selCat;
+  const rows = list.filter((x) => x.category === selCat).slice().sort((a, b) => (a.month === b.month ? ((a.date || '') < (b.date || '') ? 1 : -1) : a.month < b.month ? 1 : -1));
+  const total = d3.sum(rows, (x) => x.amount);
+  const nM = new Set(rows.map((x) => x.month)).size;
+  const big = d3.greatest(rows, (x) => x.amount);
+  const pName = p === 'all' ? 'all time' : p.length === 4 ? 'year ' + p : label(p);
+  setText('ce-title', selCat + ' — every transaction');
+  setText('ce-note', `All ${selCat.toLowerCase()} entries for ${pName}, newest first. Change the period at the top of this tab to see another month or year.`);
+  setText('ce-total', inr(total)); setText('ce-count', String(rows.length));
+  setText('ce-avg', inr(nM ? total / nM : 0)); setText('ce-big', big ? inr(big.amount) : '—');
+  rowsInto($('ce-body'), rows, [['date', 0, (v, r) => (v ? v.slice(8, 10) + '-' + v.slice(5, 7) + '-' + v.slice(0, 4) : label(r.month))], ['item'], ['amount', 1, inr], ['note']]);
+  footRow('ce-foot', [['Total'], [rows.length + ' entries'], [inr(total), 1], ['']]);
+}
+
 function renderMost() {
   if (!STATE) return;
   const sel = $('most-period');
@@ -609,9 +667,11 @@ function renderMost() {
     const f = document.createElement('div'); f.className = 'fill'; f.style.width = (100 * c.total / max).toFixed(1) + '%'; t.append(f);
     const a = document.createElement('div'); a.className = 'amt'; a.textContent = inr(c.total);
     const s = document.createElement('span'); s.className = 'pct'; s.textContent = Math.round(100 * c.share) + '%'; a.append(s);
-    row.append(n, t, a); return row;
+    row.append(n, t, a); clickable(row, () => showCategory(c.category)); return row;
   }));
-  rowsInto($('most-cat-body'), cats.map((c, i) => ({ ...c, rank: i + 1 })), [['rank'], ['category'], ['count', 1, (v) => v.toLocaleString('en-IN')], ['avg', 1, inr], ['share', 1, (v) => (100 * v).toFixed(1) + '%'], ['total', 1, inr]]);
+  rowsInto($('most-cat-body'), cats.map((c, i) => ({ ...c, rank: i + 1 })), [['rank'], ['category'], ['count', 1, (v) => v.toLocaleString('en-IN')], ['avg', 1, inr], ['share', 1, (v) => (100 * v).toFixed(1) + '%'], ['total', 1, inr]],
+    { onPick: (r) => showCategory(r.category), cls: (tr, r) => tr.classList.toggle('on', r.category === selCat) });
+  renderCatEntries(list, p);
   footRow('most-cat-foot', [[''], ['Total'], [list.length.toLocaleString('en-IN'), 1], [inr(total / nMonths), 1], ['100%', 1], [inr(total), 1]]);
 
   const items = d3.rollups(list, (v) => ({ count: v.length, total: d3.sum(v, (x) => x.amount), category: v[0].category }), (x) => x.item)
@@ -697,7 +757,8 @@ function render() {
   renderDeficit();
 
   const head = $('matrix-head');
-  head.replaceChildren(...['Month', ...CAT_NAMES, 'Daily total'].map((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num'; return th; }));
+  head.replaceChildren(...['Month', ...CAT_NAMES, 'Daily total'].map((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num';
+    if (i && i <= CAT_NAMES.length) clickable(th, () => showCategory(t, 'all')); return th; }));
 
   const sel = $('month');
   sel.replaceChildren(...monthly.slice().reverse().map((m) => new Option(label(m.month) + (m.closed ? '' : ' (open)'), m.month)));
@@ -728,6 +789,7 @@ function renderPickables() {
         if (j === 0 || j > CAT_NAMES.length) return;
         const v = r[CAT_NAMES[j - 1]];
         td.classList.toggle('zero', !v); td.classList.toggle('hot', v > 0 && v === top);
+        if (v) clickable(td, () => showCategory(CAT_NAMES[j - 1], r.month));
       }));
     }
   });
@@ -758,7 +820,7 @@ function renderDetail() {
     const f = document.createElement('div'); f.className = 'fill'; f.style.width = (100 * v / cmax).toFixed(1) + '%'; t.append(f);
     const a = document.createElement('div'); a.className = 'amt'; a.textContent = inr(v);
     const p = document.createElement('span'); p.className = 'pct'; p.textContent = Math.round(100 * v / csum) + '%'; a.append(p);
-    row.append(n, t, a); return row;
+    row.append(n, t, a); clickable(row, () => showCategory(c, current)); return row;
   }));
 
   const top = d3.rollups(counted, (v) => ({ count: v.length, total: d3.sum(v, (x) => x.amount) }), (x) => x.item)
@@ -920,6 +982,8 @@ function renderChart() {
 }
 
 $('reload').onclick = load;
+$('ce-close').onclick = () => { selCat = null; renderMost(); };
+$('ce-cat').onchange = (e) => { selCat = e.target.value; renderMost(); };
 document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
 if (location.hash === '#spend-most') showTab('most');
 if (location.hash === '#vamika-label') showTab('vamika');
