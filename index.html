@@ -94,6 +94,9 @@ tfoot td { border-top: 2px solid var(--line); background: var(--panel); position
 .donut { display: grid; place-items: center; }
 .donuts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); justify-items: center; }
 .donuts figure { margin: 0; display: grid; gap: 4px; justify-items: center; text-align: center; font-size: .82rem; color: var(--muted); }
+.year-donuts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 20px; }
+.year-donuts figcaption { display: grid; gap: 2px; font-size: .88rem; }
+.year-donuts figcaption .yr { font-family: var(--display); font-size: 1.25rem; color: var(--fg); }
 .donuts figcaption b { color: var(--fg); font-size: .95rem; }
 .err-box { border: 1px solid var(--bad); color: var(--bad); border-radius: var(--r); padding: 12px 14px; background: var(--panel); }
 footer { font-size: .8rem; color: var(--muted); }
@@ -136,7 +139,7 @@ footer { font-size: .8rem; color: var(--muted); }
 
   <section class="card" id="year-chart-card">
     <h2>Year by year</h2>
-    <p class="note" id="yc-note">How much was spent each year, split into fixed and daily spending, next to the salary that came in and the shortfall (deficit). Only finished months are counted.</p>
+    <p class="note" id="yc-note">One circle per year. The whole circle is everything spent that year, split into fixed costs and daily spending. Under each circle: the salary that came in and the shortfall (deficit). Only finished months are counted.</p>
     <div class="controls" role="group" aria-label="Show">
       <span>Show</span>
       <div class="seg">
@@ -144,8 +147,8 @@ footer { font-size: .8rem; color: var(--muted); }
         <button type="button" id="yc-avg" aria-pressed="false">Average per month</button>
       </div>
     </div>
-    <div class="legend"><span><i style="background: var(--muted-bar)"></i>Fixed (rent, EMIs, bills)</span><span><i style="background: var(--accent)"></i>Daily spending</span><span><i style="background: var(--income)"></i>Income (salary)</span><span><i style="background: var(--bad)"></i>Deficit (spent more than earned)</span></div>
-    <div class="chart" id="year-chart" style="min-height: 360px"></div>
+    <div class="legend"><span><i style="background: var(--muted-bar)"></i>Fixed (rent, EMIs, bills)</span><span><i style="background: var(--accent)"></i>Daily spending</span></div>
+    <div class="donuts year-donuts" id="year-chart"></div>
     <p class="note" id="yc-takeaway"></p>
   </section>
 
@@ -779,51 +782,28 @@ const lakh = (v) => (Math.abs(v) >= 100000 ? '₹' + (v / 100000).toFixed(2) + '
 function renderYearChart() {
   const el = $('year-chart'); if (!el || !STATE || !STATE.years) return;
   el.replaceChildren();
-  if (!el.clientWidth) return;
   const per = yearMode === 'avg';
+  const css = getComputedStyle(document.documentElement);
+  const col = (n) => css.getPropertyValue(n).trim();
   const data = STATE.years.map((y) => {
     const d = per ? y.months : 1;
     return { year: y.year, months: y.months, fixed: y.fixed / d, variable: y.variable / d, spent: y.total / d, income: y.income / d, deficit: y.deficit / d };
   });
-  const css = getComputedStyle(document.documentElement);
-  const col = (n) => css.getPropertyValue(n).trim();
-  const W = Math.max(300, el.clientWidth), H = 360, top = 30, bottom = 54;
-  const narrow = W < 520;
-  const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).style('display', 'block');
-  const x0 = d3.scaleBand(data.map((d) => d.year), [8, W - 8]).paddingInner(0.25).paddingOuter(0.1);
-  const bars = ['spent', 'income', 'deficit'];
-  const x1 = d3.scaleBand(bars, [0, x0.bandwidth()]).padding(0.14);
-  const maxV = d3.max(data, (d) => Math.max(d.spent, d.income, d.deficit)) || 1;
-  const y = d3.scaleLinear([0, maxV * 1.08], [H - bottom, top]);
-  svg.append('line').attr('x1', 8).attr('x2', W - 8).attr('y1', y(0)).attr('y2', y(0)).attr('stroke', col('--line'));
-  const fs = narrow ? '11px' : '13px';
+  const size = Math.min(240, Math.max(180, (el.clientWidth || 600) / Math.max(1, data.length) - 40));
   data.forEach((d) => {
-    const g = svg.append('g').attr('transform', `translate(${x0(d.year)},0)`);
-    const bw = x1.bandwidth();
-    const seg = (name, y0v, y1v, fill) => g.append('rect').attr('x', x1(name)).attr('width', bw).attr('y', y(y1v)).attr('height', Math.max(0, y(y0v) - y(y1v))).attr('fill', fill).attr('rx', 3);
-    seg('spent', 0, d.fixed, col('--muted-bar'));
-    seg('spent', d.fixed, d.spent, col('--accent'));
-    seg('income', 0, d.income, col('--income'));
-    seg('deficit', 0, d.deficit, col('--bad'));
-    const top = (name, v, txt, c) => g.append('text').attr('x', x1(name) + bw / 2).attr('y', y(v) - 7).attr('text-anchor', 'middle')
-      .attr('fill', c || col('--fg')).style('font-size', fs).style('font-weight', 600).text(txt);
-    top('spent', d.spent, lakh(d.spent));
-    top('income', d.income, lakh(d.income));
-    top('deficit', d.deficit, lakh(d.deficit), col('--bad'));
-    const inside = (v0, v1, txt) => { if (y(v0) - y(v1) < 34 || bw < 54) return;
-      g.append('text').attr('x', x1('spent') + bw / 2).attr('y', (y(v0) + y(v1)) / 2 + 4).attr('text-anchor', 'middle')
-        .attr('fill', '#fff').style('font-size', '11px').style('font-weight', 500).text(txt); };
-    inside(0, d.fixed, 'Fixed ' + lakh(d.fixed));
-    inside(d.fixed, d.spent, 'Daily ' + lakh(d.variable));
-    const names = { spent: 'Spent', income: 'Income', deficit: 'Deficit' };
-    bars.forEach((b) => g.append('text').attr('x', x1(b) + bw / 2).attr('y', H - bottom + 16).attr('text-anchor', 'middle')
-      .attr('fill', col('--muted')).style('font-size', '11px').text(names[b]));
-    g.append('text').attr('x', x0.bandwidth() / 2).attr('y', H - 10).attr('text-anchor', 'middle').attr('fill', col('--fg'))
-      .style('font-size', narrow ? '13px' : '15px').style('font-weight', 600)
-      .text(d.year + (d.months < 12 ? ` (${d.months} months so far)` : ' (12 months)'));
+    const f = document.createElement('figure'); const holder = document.createElement('div'); const cap = document.createElement('figcaption');
+    donut(holder, [{ name: 'Fixed (rent, EMIs, bills)', value: d.fixed, color: col('--muted-bar'), ink: col('--fg') }, { name: 'Daily spending', value: d.variable, color: col('--accent') }], size,
+      [[per ? 'Spent a month' : 'Spent', 12, col('--muted')], [lakh(d.spent), 22, col('--fg'), 600]]);
+    const line = (txt, cls) => { const s = document.createElement('span'); if (cls) s.className = cls; s.textContent = txt; return s; };
+    const yr = line(d.year + (d.months < 12 ? ` (${d.months} months so far)` : ' (12 months)'), 'yr');
+    const parts = line('Fixed ' + lakh(d.fixed) + ' · Daily ' + lakh(d.variable));
+    const inc = document.createElement('span'); const ib = document.createElement('b'); ib.style.color = 'var(--income)'; ib.textContent = 'Salary ' + lakh(d.income); inc.append(ib);
+    const def = document.createElement('span'); const db = document.createElement('b'); db.style.color = 'var(--bad)'; db.textContent = 'Deficit ' + lakh(d.deficit); def.append(db);
+    cap.append(yr, parts, inc, def);
+    f.append(holder, cap); el.append(f);
   });
   const [a, b] = data.slice(-2);
-  let msg = per ? 'Each bar is the average for one month of that year.' : 'Each bar is the total for the finished months of that year.';
+  let msg = per ? 'Each circle is the average for one month of that year.' : 'Each circle is the total for the finished months of that year.';
   if (a && b) {
     const pa = a.spent / (per ? 1 : a.months), pb = b.spent / (per ? 1 : b.months);
     const ch = pb - pa;
@@ -844,7 +824,7 @@ function donut(el, slices, size, center, named) {
   const mid = (inner + r) / 2;
   svg.selectAll('text.pct').data(arcs.filter((d) => d.endAngle - d.startAngle > 0.35)).join('text').attr('class', 'pct')
     .attr('transform', (d) => { const a = (d.startAngle + d.endAngle) / 2; return `translate(${Math.sin(a) * mid},${-Math.cos(a) * mid + 4})`; })
-    .attr('text-anchor', 'middle').attr('fill', '#fff').style('font-size', size > 220 ? '13px' : '11px').style('font-weight', 600)
+    .attr('text-anchor', 'middle').attr('fill', (d) => d.data.ink || '#fff').style('font-size', size > 220 ? '13px' : '11px').style('font-weight', 600)
     .each(function (d) { const t = d3.select(this), pc = Math.round((100 * d.data.value) / total) + '%';
       if (!named) { t.text(pc); return; }
       t.append('tspan').attr('x', 0).attr('dy', '-0.5em').text(d.data.name); t.append('tspan').attr('x', 0).attr('dy', '1.15em').text(pc); });
