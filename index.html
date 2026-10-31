@@ -91,6 +91,10 @@ tfoot td { border-top: 2px solid var(--line); background: var(--panel); position
 .seg button { border: none; border-radius: 0; padding: 6px 12px; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--panel); }
+.donut { display: grid; place-items: center; }
+.donuts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); justify-items: center; }
+.donuts figure { margin: 0; display: grid; gap: 4px; justify-items: center; text-align: center; font-size: .82rem; color: var(--muted); }
+.donuts figcaption b { color: var(--fg); font-size: .95rem; }
 .err-box { border: 1px solid var(--bad); color: var(--bad); border-radius: var(--r); padding: 12px 14px; background: var(--panel); }
 footer { font-size: .8rem; color: var(--muted); }
 @media (max-width: 560px) { h1 { font-size: 2rem; } .tile .v { font-size: 1.6rem; } .bar { grid-template-columns: minmax(0, 7rem) 1fr auto; } }
@@ -110,6 +114,7 @@ footer { font-size: .8rem; color: var(--muted); }
     <button type="button" role="tab" id="tabbtn-overview" data-tab="overview" aria-selected="true">Overview</button>
     <button type="button" role="tab" id="tabbtn-most" data-tab="most" aria-selected="false">Where we spend most</button>
     <button type="button" role="tab" id="tabbtn-vamika" data-tab="vamika" aria-selected="false">Vamika Label</button>
+    <button type="button" role="tab" id="tabbtn-deficit" data-tab="deficit" aria-selected="false">Deficit</button>
   </nav>
 
   <div class="tab" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview">
@@ -338,6 +343,53 @@ footer { font-size: .8rem; color: var(--muted); }
     </section>
   </div>
 
+  <div class="tab" id="tab-deficit" role="tabpanel" aria-labelledby="tabbtn-deficit" hidden>
+    <section class="card">
+      <h2>Deficit, all years</h2>
+      <p class="note">Deficit is how much more was spent than the salary brought in, as each month's tab works it out. Only finished months are counted.</p>
+      <div class="bill">
+        <div><span>Total deficit</span><b class="bad" id="df-total">—</b></div>
+        <div><span>Months counted</span><b id="df-months">—</b></div>
+        <div><span>Average per month</span><b id="df-avg">—</b></div>
+        <div><span>Biggest month</span><b id="df-worst">—</b></div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Which year had more deficit</h2>
+        <p class="note">The whole circle is the total deficit. Each slice is one year.</p>
+        <div class="donut" id="df-year-donut"></div>
+        <div class="legend" id="df-year-legend"></div>
+      </div>
+      <div class="card">
+        <h2>How each year's money was found</h2>
+        <p class="note">Each circle is one year: orange is what the salary covered, red is the deficit (money that had to come from elsewhere).</p>
+        <div class="donuts" id="df-split"></div>
+        <div class="legend"><span><i style="background: var(--income)"></i>Covered by salary</span><span><i style="background: var(--bad)"></i>Deficit</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Year-wise deficit</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Year</th><th class="num">Months</th><th class="num">Spent</th><th class="num">Salary</th><th class="num">Deficit</th><th class="num">Per month</th><th class="num">Share of all deficit</th></tr></thead>
+        <tbody id="df-year-body"></tbody>
+        <tfoot><tr id="df-year-foot"></tr></tfoot>
+      </table></div>
+    </section>
+
+    <section class="card">
+      <h2>Month-wise deficit</h2>
+      <p class="note">Newest first. Click a month to open its full statement.</p>
+      <div class="scroll tall"><table>
+        <thead><tr><th>Month</th><th class="num">Spent</th><th class="num">Salary</th><th class="num">Deficit</th><th class="num">Running total</th></tr></thead>
+        <tbody id="df-month-body"></tbody>
+        <tfoot><tr id="df-month-foot"></tr></tfoot>
+      </table></div>
+    </section>
+  </div>
+
   <footer>Data comes straight from the Google Sheet. To change a number, edit the sheet and press Refresh here.</footer>
 </div>
 
@@ -527,7 +579,9 @@ function showTab(name) {
   document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   document.querySelectorAll('.tab').forEach((t) => { t.hidden = t.id !== 'tab-' + name; });
   if (name === 'overview') { renderChart(); renderYearChart(); }
-  try { history.replaceState(null, '', name === 'most' ? '#spend-most' : name === 'vamika' ? '#vamika-label' : location.pathname); } catch (e) {}
+  if (name === 'deficit') renderDeficit();
+  const hash = { most: '#spend-most', vamika: '#vamika-label', deficit: '#deficit' }[name];
+  try { history.replaceState(null, '', hash || location.pathname); } catch (e) {}
 }
 
 function renderMost() {
@@ -637,6 +691,7 @@ function render() {
   vs.value = vkeep && [...vs.options].some((o) => o.value === vkeep) ? vkeep : 'all';
   vs.onchange = renderVamika;
   renderVamika();
+  renderDeficit();
 
   const head = $('matrix-head');
   head.replaceChildren(...['Month', ...CAT_NAMES, 'Daily total'].map((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num'; return th; }));
@@ -777,6 +832,70 @@ function renderYearChart() {
   setText('yc-takeaway', msg);
 }
 
+function donut(el, slices, size, center, named) {
+  const css = getComputedStyle(document.documentElement);
+  const r = size / 2, inner = r * 0.62;
+  const svg = d3.select(el).append('svg').attr('width', size).attr('height', size).attr('viewBox', `${-r} ${-r} ${size} ${size}`).style('display', 'block').style('max-width', '100%');
+  const total = d3.sum(slices, (d) => d.value) || 1;
+  const arcs = d3.pie().sort(null).value((d) => d.value)(slices);
+  const arc = d3.arc().innerRadius(inner).outerRadius(r - 2).padAngle(slices.length > 1 ? 0.012 : 0);
+  svg.selectAll('path').data(arcs).join('path').attr('d', arc).attr('fill', (d) => d.data.color).attr('stroke', css.getPropertyValue('--panel').trim()).attr('stroke-width', 2)
+    .append('title').text((d) => d.data.name + ': ' + inr(d.data.value) + ' (' + Math.round((100 * d.data.value) / total) + '%)');
+  const mid = (inner + r) / 2;
+  svg.selectAll('text.pct').data(arcs.filter((d) => d.endAngle - d.startAngle > 0.35)).join('text').attr('class', 'pct')
+    .attr('transform', (d) => { const a = (d.startAngle + d.endAngle) / 2; return `translate(${Math.sin(a) * mid},${-Math.cos(a) * mid + 4})`; })
+    .attr('text-anchor', 'middle').attr('fill', '#fff').style('font-size', size > 220 ? '13px' : '11px').style('font-weight', 600)
+    .each(function (d) { const t = d3.select(this), pc = Math.round((100 * d.data.value) / total) + '%';
+      if (!named) { t.text(pc); return; }
+      t.append('tspan').attr('x', 0).attr('dy', '-0.5em').text(d.data.name); t.append('tspan').attr('x', 0).attr('dy', '1.15em').text(pc); });
+  const hs = center.map(([, fsz]) => fsz * 1.3), H = d3.sum(hs);
+  let yy = -H / 2;
+  center.forEach(([t, fsz, c, w], i) => { svg.append('text').attr('text-anchor', 'middle').attr('y', yy + hs[i] * 0.75)
+    .attr('fill', c || css.getPropertyValue('--fg').trim()).style('font-size', fsz + 'px').style('font-weight', w || 400).text(t); yy += hs[i]; });
+}
+
+function renderDeficit() {
+  if (!STATE || !STATE.years) return;
+  const css = getComputedStyle(document.documentElement);
+  const col = (n) => css.getPropertyValue(n).trim();
+  const closed = STATE.monthly.filter((m) => m.closed);
+  const totalDef = d3.sum(closed, (m) => m.deficit || 0);
+  const worst = d3.greatest(closed, (m) => m.deficit || 0);
+  setText('df-total', inr(totalDef)); setText('df-months', String(closed.length));
+  setText('df-avg', inr(closed.length ? totalDef / closed.length : 0));
+  setText('df-worst', worst ? label(worst.month) + ' · ' + lakh(worst.deficit) : '—');
+
+  const years = STATE.years;
+  const shades = years.map((_, i) => d3.interpolateRgb(col('--bad'), col('--panel'))(years.length > 1 ? (0.55 * (years.length - 1 - i)) / (years.length - 1) : 0));
+  const yd = $('df-year-donut'); yd.replaceChildren();
+  donut(yd, years.map((y, i) => ({ name: y.year, value: Math.max(0, y.deficit), color: shades[i] })), Math.min(280, Math.max(200, yd.clientWidth || 260)),
+    [['Total deficit', 13, col('--muted')], [lakh(totalDef), 24, col('--bad'), 600], [years.length + ' years', 12, col('--muted')]], true);
+  $('df-year-legend').replaceChildren(...years.map((y, i) => {
+    const s = document.createElement('span'); const k = document.createElement('i'); k.style.background = shades[i];
+    s.append(k, `${y.year}${y.months < 12 ? ' (' + y.months + ' months)' : ''}: ${lakh(y.deficit)}`); return s; }));
+
+  const sp = $('df-split'); sp.replaceChildren();
+  years.forEach((y) => {
+    const f = document.createElement('figure'); const holder = document.createElement('div'); const cap = document.createElement('figcaption');
+    const need = Math.max(0, y.income) + Math.max(0, y.deficit);
+    donut(holder, [{ name: 'Covered by salary', value: Math.max(0, y.income), color: col('--income') }, { name: 'Deficit', value: Math.max(0, y.deficit), color: col('--bad') }], 170,
+      [[y.year, 15, col('--fg'), 600], [Math.round((100 * y.deficit) / (need || 1)) + '% deficit', 12, col('--bad'), 600]]);
+    const b = document.createElement('b'); b.textContent = 'Deficit ' + lakh(y.deficit);
+    cap.append(b, document.createElement('br'), 'Salary ' + lakh(y.income) + ' · ' + y.months + ' months');
+    f.append(holder, cap); sp.append(f);
+  });
+
+  rowsInto($('df-year-body'), years.map((y) => ({ ...y, per: y.deficit / y.months, share: totalDef ? y.deficit / totalDef : 0 })),
+    [['year'], ['months', 1], ['total', 1, inr], ['income', 1, inr], ['deficit', 1, inr], ['per', 1, inr], ['share', 1, (v) => Math.round(100 * v) + '%']]);
+  footRow('df-year-foot', [['All years'], [String(closed.length), 1], [inr(d3.sum(years, (y) => y.total)), 1], [inr(d3.sum(years, (y) => y.income)), 1],
+    [inr(totalDef), 1], [inr(closed.length ? totalDef / closed.length : 0), 1], ['100%', 1]]);
+
+  let run = 0;
+  const rows = closed.map((m) => ({ ...m, run: (run += m.deficit || 0) })).reverse();
+  rowsInto($('df-month-body'), rows, [['month', 0, (v) => label(v)], ['total', 1, inr], ['income', 1, inr], ['deficit', 1, inr], ['run', 1, inr]], { onPick: (r) => pick(r.month) });
+  footRow('df-month-foot', [['Total (' + closed.length + ' months)'], [inr(d3.sum(closed, (m) => m.total)), 1], [inr(d3.sum(closed, (m) => m.income || 0)), 1], [inr(totalDef), 1], ['', 1]]);
+}
+
 function renderChart() {
   const el = $('chart'); el.replaceChildren();
   if (!STATE) return;
@@ -824,12 +943,13 @@ $('reload').onclick = load;
 document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
 if (location.hash === '#spend-most') showTab('most');
 if (location.hash === '#vamika-label') showTab('vamika');
+if (location.hash === '#deficit') showTab('deficit');
 $('search').addEventListener('input', (e) => { query = e.target.value.trim().toUpperCase(); renderDetail(); });
 const setYearMode = (m) => { yearMode = m; $('yc-total').setAttribute('aria-pressed', String(m === 'total')); $('yc-avg').setAttribute('aria-pressed', String(m === 'avg')); renderYearChart(); };
 $('yc-total').onclick = () => setYearMode('total');
 $('yc-avg').onclick = () => setYearMode('avg');
 let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { renderChart(); renderYearChart(); }, 150); });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { renderChart(); renderYearChart(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { renderChart(); renderYearChart(); renderDeficit(); });
 load();
 </script>
 </body>
