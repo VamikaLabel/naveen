@@ -122,7 +122,7 @@ footer { font-size: .8rem; color: var(--muted); }
     <button type="button" role="tab" id="tabbtn-most" data-tab="most" aria-selected="false">Where we spend most</button>
     <button type="button" role="tab" id="tabbtn-vamika" data-tab="vamika" aria-selected="false">Vamika Label</button>
     <button type="button" role="tab" id="tabbtn-deficit" data-tab="deficit" aria-selected="false">Deficit</button>
-    <button type="button" role="tab" id="tabbtn-fd" data-tab="fd" aria-selected="false">Vamika fixed deposits</button>
+    <button type="button" role="tab" id="tabbtn-fd" data-tab="fd" aria-selected="false">Vamika deposits</button>
   </nav>
 
   <div class="tab" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview">
@@ -423,7 +423,7 @@ footer { font-size: .8rem; color: var(--muted); }
 
   <div class="tab" id="tab-fd" role="tabpanel" aria-labelledby="tabbtn-fd" hidden>
     <section class="card">
-      <h2>Vamika fixed deposits</h2>
+      <h2>Vamika deposits</h2>
       <p class="note" id="fd-note"></p>
       <div class="bill">
         <div><span>Amount given</span><b id="fd-principal">—</b></div>
@@ -666,7 +666,7 @@ function showTab(name) {
   if (name === 'overview') { renderChart(); renderYearChart(); }
   if (name === 'deficit') renderDeficit();
   if (name === 'fd') renderDeposits();
-  const hash = { most: '#spend-most', vamika: '#vamika-label', deficit: '#deficit', fd: '#fixed-deposits' }[name];
+  const hash = { most: '#spend-most', vamika: '#vamika-label', deficit: '#deficit', fd: '#vamika-deposits' }[name];
   try { history.replaceState(null, '', hash || location.pathname); } catch (e) {}
 }
 
@@ -1111,7 +1111,7 @@ document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => sho
 if (location.hash === '#spend-most') showTab('most');
 if (location.hash === '#vamika-label') showTab('vamika');
 if (location.hash === '#deficit') showTab('deficit');
-if (location.hash === '#fixed-deposits') showTab('fd');
+if (location.hash === '#vamika-deposits' || location.hash === '#fixed-deposits') showTab('fd');
 $('search').addEventListener('input', (e) => { query = e.target.value.trim().toUpperCase(); renderDetail(); });
 const setYearMode = (m) => { yearMode = m; $('yc-total').setAttribute('aria-pressed', String(m === 'total')); $('yc-avg').setAttribute('aria-pressed', String(m === 'avg')); renderYearChart(); };
 $('yc-total').onclick = () => setYearMode('total');
