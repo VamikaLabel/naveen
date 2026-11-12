@@ -435,9 +435,9 @@ footer { font-size: .8rem; color: var(--muted); }
 
     <section class="card">
       <h2>Person-wise</h2>
-      <p class="note">One row per line in the VAMIKA DEPOSITS tab. Interest is added once a full month passes from the start date.</p>
+      <p class="note">One row per line in the VAMIKA DEPOSITS tab. Interest is added once a full month passes from the start date. "Principal now" includes interest from completed years.</p>
       <div class="scroll"><table>
-        <thead><tr><th>Person</th><th class="num">Amount</th><th class="num">Rate a year</th><th>From</th><th class="num">Interest / month</th><th class="num">Months done</th><th class="num">Interest so far</th><th class="num">Value today</th></tr></thead>
+        <thead><tr><th>Person</th><th class="num">Amount</th><th class="num">Rate a year</th><th>From</th><th class="num">Principal now</th><th class="num">Interest / month now</th><th class="num">Months done</th><th class="num">Interest so far</th><th class="num">Value today</th></tr></thead>
         <tbody id="fd-person-body"></tbody>
         <tfoot><tr id="fd-person-foot"></tr></tfoot>
       </table></div>
@@ -464,7 +464,7 @@ footer { font-size: .8rem; color: var(--muted); }
       <h2>Month-wise interest</h2>
       <p class="note">One row per completed month for each person, newest first.</p>
       <div class="scroll tall"><table>
-        <thead><tr><th>Month</th><th>Person</th><th>Added on</th><th class="num">Interest</th><th class="num">Interest so far</th><th class="num">Value</th></tr></thead>
+        <thead><tr><th>Month</th><th>Person</th><th>Added on</th><th class="num">Principal</th><th class="num">Interest</th><th class="num">Interest so far</th><th class="num">Value</th></tr></thead>
         <tbody id="fd-month-body"></tbody>
         <tfoot><tr id="fd-month-foot"></tr></tfoot>
       </table></div>
@@ -697,28 +697,30 @@ function renderDeposits() {
   const fmt = (d) => String(d.getDate()).padStart(2, '0') + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + d.getFullYear();
   const ymOf = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   const rows = [];
+  // Interest is flat each month within a year; every 12 months it joins the principal (compounded yearly).
   const people = deps.map((d) => {
-    const monthly = (d.principal * d.rate) / 1200;
-    let n = 0, run = 0;
+    let n = 0, run = 0, base = d.principal;
     for (;;) {
       const due = new Date(d.start.getFullYear(), d.start.getMonth() + n + 1, d.start.getDate());
       if (due > today) break;
       const begin = new Date(d.start.getFullYear(), d.start.getMonth() + n, 1);
+      const monthly = (base * d.rate) / 1200;
       run += monthly; n++;
-      if (monthly) rows.push({ month: ymOf(begin), year: String(begin.getFullYear()), name: d.name, added: fmt(due), sort: due.getTime(), interest: monthly, run, value: d.principal + run });
+      if (monthly) rows.push({ month: ymOf(begin), year: String(begin.getFullYear()), name: d.name, added: fmt(due), sort: due.getTime(), base, interest: monthly, run, value: d.principal + run });
+      if (n % 12 === 0) base = d.principal + run;
     }
-    return { ...d, monthly, months: n, interest: run, value: d.principal + run, from: fmt(d.start) };
+    return { ...d, base, monthly: (base * d.rate) / 1200, months: n, interest: run, value: d.principal + run, from: fmt(d.start) };
   });
   const principal = d3.sum(people, (d) => d.principal), perMonth = d3.sum(people, (d) => d.monthly);
   const interest = d3.sum(people, (d) => d.interest), value = principal + interest;
   setText('fd-principal', inr(principal)); setText('fd-rate', inr(perMonth));
   setText('fd-interest', inr(interest)); setText('fd-value', inr(value));
   setText('fd-note', deps.length
-    ? `${deps.length} deposits, read live from the ${DEP_TAB} tab. Interest is simple (not compounded): amount × rate ÷ 12 every month.`
+    ? `${deps.length} deposits, read live from the ${DEP_TAB} tab. Each month's interest is principal × rate ÷ 12. Every 12 months the interest is added to the principal, so the next year earns interest on the bigger amount.`
     : `No deposits found. Add rows to the ${DEP_TAB} tab in the sheet.`);
 
-  rowsInto($('fd-person-body'), people, [['name'], ['principal', 1, inr], ['rate', 1, (v) => v + '%'], ['from'], ['monthly', 1, inr], ['months', 1], ['interest', 1, inr], ['value', 1, inr]]);
-  footRow('fd-person-foot', [['Total'], [inr(principal), 1], [''], [''], [inr(perMonth), 1], [''], [inr(interest), 1], [inr(value), 1]]);
+  rowsInto($('fd-person-body'), people, [['name'], ['principal', 1, inr], ['rate', 1, (v) => v + '%'], ['from'], ['base', 1, inr], ['monthly', 1, inr], ['months', 1], ['interest', 1, inr], ['value', 1, inr]]);
+  footRow('fd-person-foot', [['Total'], [inr(principal), 1], [''], [''], [inr(d3.sum(people, (d) => d.base)), 1], [inr(perMonth), 1], [''], [inr(interest), 1], [inr(value), 1]]);
 
   const css = getComputedStyle(document.documentElement);
   const col = (n) => css.getPropertyValue(n).trim();
@@ -732,8 +734,8 @@ function renderDeposits() {
   years.forEach((y) => { cum += y.interest; y.value = d3.sum(deps.filter((d) => d.start.getFullYear() <= +y.year), (d) => d.principal) + cum; });
   rowsInto($('fd-year-body'), years, [['year'], ['months', 1], ['interest', 1, inr], ['value', 1, inr]]);
   footRow('fd-year-foot', [['All years'], [String(new Set(rows.map((r) => r.month)).size), 1], [inr(interest), 1], [inr(value), 1]]);
-  rowsInto($('fd-month-body'), rows.slice().sort((a, b) => b.sort - a.sort), [['month', 0, (v) => label(v)], ['name'], ['added'], ['interest', 1, inr], ['run', 1, inr], ['value', 1, inr]]);
-  footRow('fd-month-foot', [['Total'], [rows.length + ' entries'], [''], [inr(interest), 1], [''], ['']]);
+  rowsInto($('fd-month-body'), rows.slice().sort((a, b) => b.sort - a.sort), [['month', 0, (v) => label(v)], ['name'], ['added'], ['base', 1, inr], ['interest', 1, inr], ['run', 1, inr], ['value', 1, inr]]);
+  footRow('fd-month-foot', [['Total'], [rows.length + ' entries'], [''], [''], [inr(interest), 1], [''], ['']]);
 }
 
 let selCat = null;
