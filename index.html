@@ -427,17 +427,26 @@ footer { font-size: .8rem; color: var(--muted); }
       <p class="note" id="fd-note"></p>
       <div class="bill">
         <div><span>Amount given</span><b id="fd-principal">—</b></div>
-        <div><span>Interest (24% a year)</span><b id="fd-rate">—</b></div>
-        <div><span>Months completed</span><b id="fd-months">—</b></div>
+        <div><span>Interest per month</span><b id="fd-rate">—</b></div>
         <div><span>Interest so far</span><b id="fd-interest">—</b></div>
         <div><span>Total value today</span><b id="fd-value">—</b></div>
       </div>
     </section>
 
+    <section class="card">
+      <h2>Person-wise</h2>
+      <p class="note">One row per line in the VAMIKA DEPOSITS tab. Interest is added once a full month passes from the start date.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Person</th><th class="num">Amount</th><th class="num">Rate a year</th><th>From</th><th class="num">Interest / month</th><th class="num">Months done</th><th class="num">Interest so far</th><th class="num">Value today</th></tr></thead>
+        <tbody id="fd-person-body"></tbody>
+        <tfoot><tr id="fd-person-foot"></tr></tfoot>
+      </table></div>
+    </section>
+
     <section class="grid">
       <div class="card">
         <h2>Amount given vs interest earned</h2>
-        <p class="note">The whole circle is what the deposit is worth today.</p>
+        <p class="note">The whole circle is what all the deposits are worth today.</p>
         <div class="donut" id="fd-donut"></div>
         <div class="legend"><span><i style="background: var(--muted-bar)"></i>Amount given</span><span><i style="background: var(--income)"></i>Interest earned</span></div>
       </div>
@@ -453,9 +462,9 @@ footer { font-size: .8rem; color: var(--muted); }
 
     <section class="card">
       <h2>Month-wise interest</h2>
-      <p class="note">One row per completed month, newest first. The running month is added once it ends.</p>
+      <p class="note">One row per completed month for each person, newest first.</p>
       <div class="scroll tall"><table>
-        <thead><tr><th>Month</th><th>Deposit</th><th class="num">Interest</th><th class="num">Interest so far</th><th class="num">Total value</th></tr></thead>
+        <thead><tr><th>Month</th><th>Person</th><th>Added on</th><th class="num">Interest</th><th class="num">Interest so far</th><th class="num">Value</th></tr></thead>
         <tbody id="fd-month-body"></tbody>
         <tfoot><tr id="fd-month-foot"></tr></tfoot>
       </table></div>
@@ -519,8 +528,8 @@ function parseCSV(text) {
   return rows;
 }
 
-async function fetchTab(name) {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&headers=0&sheet=${encodeURIComponent(name)}&_=${Date.now()}`;
+async function fetchTab(name, range) {
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&headers=0&sheet=${encodeURIComponent(name)}${range ? '&range=' + range : ''}&_=${Date.now()}`;
   const r = await fetch(url, { cache: 'no-store' });
   if (!r.ok) throw new Error('HTTP ' + r.status);
   const t = await r.text();
@@ -611,12 +620,12 @@ async function load() {
   }
   try {
     const months = monthsUntilNow();
-    const [fixedRows, emiRows, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), ...months.map(loadMonth)]);
+    const [fixedRows, emiRows, deposits, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), loadDeposits(), ...months.map(loadMonth)]);
     const monthly = ms.filter(Boolean).map(parseMonth);
     const fixedList = parseFixed(fixedRows), fixedNow = d3.sum(fixedList, (r) => r.amount);
     // A month whose tab has no fixed figure yet (the running month) takes today's FIXED EXPENDITURE total.
     monthly.forEach((m) => { if (m.fixed == null && fixedNow) { m.fixed = fixedNow; m.fixedFromTab = true; m.total = m.fixed + m.variable; } });
-    STATE = { monthly, fixed: fixedList, emi: parseEmi(emiRows), items: monthly.flatMap((m) => m.items) };
+    STATE = { monthly, deposits, fixed: fixedList, emi: parseEmi(emiRows), items: monthly.flatMap((m) => m.items) };
     if (!current || !monthly.some((m) => m.month === current)) current = monthly.length ? monthly[monthly.length - 1].month : null;
     render();
     $('status').className = 'status live';
@@ -661,32 +670,55 @@ function showTab(name) {
   try { history.replaceState(null, '', hash || location.pathname); } catch (e) {}
 }
 
-// Money given to Vamika Label as fixed deposits. Interest is a flat amount every month (not compounded).
-const DEPOSITS = [
-  { name: "Dad's amount", principal: 200000, monthly: 4000, start: '2025-05' }
-];
+// VAMIKA DEPOSITS tab: S.NO, PERSON, AMOUNT, INTEREST RATE (% a year), CALCULATE FROM (DD-MM-YYYY).
+const DEP_TAB = 'VAMIKA DEPOSITS';
+const parseDay = (t) => { const m = String(t || '').trim().match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/); return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null; };
+
+async function loadDeposits() {
+  let rows;
+  try { rows = await fetchTab(DEP_TAB); } catch (e) { if (e.message === 'not-public') throw e; return []; }
+  if (!rows.some((r) => /PERSON/i.test(r[1] || ''))) return []; // tab missing: Google sent the first tab instead
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!/^\d+$/.test((r[0] || '').trim()) || num(r[2]) == null) continue;
+    let from = r[4];
+    // Google blanks a cell whose type differs from the rest of the column, so ask for that cell on its own.
+    if (!parseDay(from)) { try { from = ((await fetchTab(DEP_TAB, 'E' + (i + 1)))[0] || [])[0]; } catch (e) {} }
+    const start = parseDay(from);
+    if (start) out.push({ name: (r[1] || '').trim(), principal: num(r[2]), rate: num(r[3]) || 0, start });
+  }
+  return out;
+}
 
 function renderDeposits() {
-  const now = new Date();
-  const thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  if (!STATE || !STATE.deposits) return;
+  const deps = STATE.deposits, today = new Date();
+  const fmt = (d) => String(d.getDate()).padStart(2, '0') + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + d.getFullYear();
+  const ymOf = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   const rows = [];
-  for (const d of DEPOSITS) {
-    let [y, m] = d.start.split('-').map(Number), run = 0;
+  const people = deps.map((d) => {
+    const monthly = (d.principal * d.rate) / 1200;
+    let n = 0, run = 0;
     for (;;) {
-      const ym = y + '-' + String(m).padStart(2, '0');
-      if (ym >= thisMonth) break;
-      run += d.monthly;
-      rows.push({ month: ym, year: String(y), name: d.name, interest: d.monthly, run, value: d.principal + run });
-      if (++m > 12) { m = 1; y++; }
+      const due = new Date(d.start.getFullYear(), d.start.getMonth() + n + 1, d.start.getDate());
+      if (due > today) break;
+      const begin = new Date(d.start.getFullYear(), d.start.getMonth() + n, 1);
+      run += monthly; n++;
+      if (monthly) rows.push({ month: ymOf(begin), year: String(begin.getFullYear()), name: d.name, added: fmt(due), sort: due.getTime(), interest: monthly, run, value: d.principal + run });
     }
-  }
-  const principal = d3.sum(DEPOSITS, (d) => d.principal), perMonth = d3.sum(DEPOSITS, (d) => d.monthly);
-  const interest = d3.sum(rows, (r) => r.interest), value = principal + interest;
-  const months = new Set(rows.map((r) => r.month)).size;
-  setText('fd-principal', inr(principal)); setText('fd-rate', inr(perMonth) + ' / month');
-  setText('fd-months', String(months)); setText('fd-interest', inr(interest)); setText('fd-value', inr(value));
-  setText('fd-note', DEPOSITS.map((d) => `${d.name}: ${inr(d.principal)} from ${label(d.start)}, earning ${inr(d.monthly)} interest every month: ${Math.round((1200 * d.monthly) / d.principal)}% a year, ${inr(d.monthly * 12)} a year.`).join(' ')
-    + ` Next ${inr(perMonth)} is added when ${label(thisMonth)} ends.`);
+    return { ...d, monthly, months: n, interest: run, value: d.principal + run, from: fmt(d.start) };
+  });
+  const principal = d3.sum(people, (d) => d.principal), perMonth = d3.sum(people, (d) => d.monthly);
+  const interest = d3.sum(people, (d) => d.interest), value = principal + interest;
+  setText('fd-principal', inr(principal)); setText('fd-rate', inr(perMonth));
+  setText('fd-interest', inr(interest)); setText('fd-value', inr(value));
+  setText('fd-note', deps.length
+    ? `${deps.length} deposits, read live from the ${DEP_TAB} tab. Interest is simple (not compounded): amount × rate ÷ 12 every month.`
+    : `No deposits found. Add rows to the ${DEP_TAB} tab in the sheet.`);
+
+  rowsInto($('fd-person-body'), people, [['name'], ['principal', 1, inr], ['rate', 1, (v) => v + '%'], ['from'], ['monthly', 1, inr], ['months', 1], ['interest', 1, inr], ['value', 1, inr]]);
+  footRow('fd-person-foot', [['Total'], [inr(principal), 1], [''], [''], [inr(perMonth), 1], [''], [inr(interest), 1], [inr(value), 1]]);
 
   const css = getComputedStyle(document.documentElement);
   const col = (n) => css.getPropertyValue(n).trim();
@@ -694,11 +726,14 @@ function renderDeposits() {
   donut(el, [{ name: 'Amount given', value: principal, color: col('--muted-bar'), ink: col('--fg') }, { name: 'Interest earned', value: interest, color: col('--income') }],
     Math.min(260, Math.max(200, el.clientWidth || 240)), [['Worth today', 13, col('--muted')], [lakh(value), 24, col('--fg'), 600]]);
 
-  const years = d3.rollups(rows, (v) => ({ months: v.length, interest: d3.sum(v, (r) => r.interest), value: v[v.length - 1].value }), (r) => r.year).map(([year, v]) => ({ year, ...v }));
+  const years = d3.rollups(rows, (v) => ({ months: new Set(v.map((r) => r.month)).size, interest: d3.sum(v, (r) => r.interest) }), (r) => r.year)
+    .map(([year, v]) => ({ year, ...v })).sort((a, b) => (a.year < b.year ? -1 : 1));
+  let cum = 0;
+  years.forEach((y) => { cum += y.interest; y.value = d3.sum(deps.filter((d) => d.start.getFullYear() <= +y.year), (d) => d.principal) + cum; });
   rowsInto($('fd-year-body'), years, [['year'], ['months', 1], ['interest', 1, inr], ['value', 1, inr]]);
-  footRow('fd-year-foot', [['All years'], [String(months), 1], [inr(interest), 1], [inr(value), 1]]);
-  rowsInto($('fd-month-body'), rows.slice().reverse(), [['month', 0, (v) => label(v)], ['name'], ['interest', 1, inr], ['run', 1, inr], ['value', 1, inr]]);
-  footRow('fd-month-foot', [['Total (' + months + ' months)'], [''], [inr(interest), 1], [''], [inr(value), 1]]);
+  footRow('fd-year-foot', [['All years'], [String(new Set(rows.map((r) => r.month)).size), 1], [inr(interest), 1], [inr(value), 1]]);
+  rowsInto($('fd-month-body'), rows.slice().sort((a, b) => b.sort - a.sort), [['month', 0, (v) => label(v)], ['name'], ['added'], ['interest', 1, inr], ['run', 1, inr], ['value', 1, inr]]);
+  footRow('fd-month-foot', [['Total'], [rows.length + ' entries'], [''], [inr(interest), 1], [''], ['']]);
 }
 
 let selCat = null;
@@ -842,6 +877,7 @@ function render() {
   vs.onchange = renderVamika;
   renderVamika();
   renderDeficit();
+  renderDeposits();
 
   const head = $('matrix-head');
   head.replaceChildren(...['Month', ...CAT_NAMES, 'Daily total'].map((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num';
