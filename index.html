@@ -122,6 +122,7 @@ footer { font-size: .8rem; color: var(--muted); }
     <button type="button" role="tab" id="tabbtn-most" data-tab="most" aria-selected="false">Where we spend most</button>
     <button type="button" role="tab" id="tabbtn-vamika" data-tab="vamika" aria-selected="false">Vamika Label</button>
     <button type="button" role="tab" id="tabbtn-deficit" data-tab="deficit" aria-selected="false">Deficit</button>
+    <button type="button" role="tab" id="tabbtn-fd" data-tab="fd" aria-selected="false">Vamika fixed deposits</button>
   </nav>
 
   <div class="tab" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview">
@@ -420,6 +421,47 @@ footer { font-size: .8rem; color: var(--muted); }
     </section>
   </div>
 
+  <div class="tab" id="tab-fd" role="tabpanel" aria-labelledby="tabbtn-fd" hidden>
+    <section class="card">
+      <h2>Vamika fixed deposits</h2>
+      <p class="note" id="fd-note"></p>
+      <div class="bill">
+        <div><span>Amount given</span><b id="fd-principal">—</b></div>
+        <div><span>Interest per month</span><b id="fd-rate">—</b></div>
+        <div><span>Months completed</span><b id="fd-months">—</b></div>
+        <div><span>Interest so far</span><b id="fd-interest">—</b></div>
+        <div><span>Total value today</span><b id="fd-value">—</b></div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Amount given vs interest earned</h2>
+        <p class="note">The whole circle is what the deposit is worth today.</p>
+        <div class="donut" id="fd-donut"></div>
+        <div class="legend"><span><i style="background: var(--muted-bar)"></i>Amount given</span><span><i style="background: var(--income)"></i>Interest earned</span></div>
+      </div>
+      <div class="card">
+        <h2>Year-wise interest</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>Year</th><th class="num">Months</th><th class="num">Interest</th><th class="num">Value at end of year / today</th></tr></thead>
+          <tbody id="fd-year-body"></tbody>
+          <tfoot><tr id="fd-year-foot"></tr></tfoot>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Month-wise interest</h2>
+      <p class="note">One row per completed month, newest first. The running month is added once it ends.</p>
+      <div class="scroll tall"><table>
+        <thead><tr><th>Month</th><th>Deposit</th><th class="num">Interest</th><th class="num">Interest so far</th><th class="num">Total value</th></tr></thead>
+        <tbody id="fd-month-body"></tbody>
+        <tfoot><tr id="fd-month-foot"></tr></tfoot>
+      </table></div>
+    </section>
+  </div>
+
   <footer>Data comes straight from the Google Sheet. To change a number, edit the sheet and press Refresh here.</footer>
 </div>
 
@@ -614,8 +656,49 @@ function showTab(name) {
   document.querySelectorAll('.tab').forEach((t) => { t.hidden = t.id !== 'tab-' + name; });
   if (name === 'overview') { renderChart(); renderYearChart(); }
   if (name === 'deficit') renderDeficit();
-  const hash = { most: '#spend-most', vamika: '#vamika-label', deficit: '#deficit' }[name];
+  if (name === 'fd') renderDeposits();
+  const hash = { most: '#spend-most', vamika: '#vamika-label', deficit: '#deficit', fd: '#fixed-deposits' }[name];
   try { history.replaceState(null, '', hash || location.pathname); } catch (e) {}
+}
+
+// Money given to Vamika Label as fixed deposits. Interest is a flat amount every month (not compounded).
+const DEPOSITS = [
+  { name: "Dad's amount", principal: 200000, monthly: 4000, start: '2025-05' }
+];
+
+function renderDeposits() {
+  const now = new Date();
+  const thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const rows = [];
+  for (const d of DEPOSITS) {
+    let [y, m] = d.start.split('-').map(Number), run = 0;
+    for (;;) {
+      const ym = y + '-' + String(m).padStart(2, '0');
+      if (ym >= thisMonth) break;
+      run += d.monthly;
+      rows.push({ month: ym, year: String(y), name: d.name, interest: d.monthly, run, value: d.principal + run });
+      if (++m > 12) { m = 1; y++; }
+    }
+  }
+  const principal = d3.sum(DEPOSITS, (d) => d.principal), perMonth = d3.sum(DEPOSITS, (d) => d.monthly);
+  const interest = d3.sum(rows, (r) => r.interest), value = principal + interest;
+  const months = new Set(rows.map((r) => r.month)).size;
+  setText('fd-principal', inr(principal)); setText('fd-rate', inr(perMonth));
+  setText('fd-months', String(months)); setText('fd-interest', inr(interest)); setText('fd-value', inr(value));
+  setText('fd-note', DEPOSITS.map((d) => `${d.name}: ${inr(d.principal)} from ${label(d.start)}, earning ${inr(d.monthly)} interest every month (${inr(d.monthly * 12)} a year).`).join(' ')
+    + ` Next ${inr(perMonth)} is added when ${label(thisMonth)} ends.`);
+
+  const css = getComputedStyle(document.documentElement);
+  const col = (n) => css.getPropertyValue(n).trim();
+  const el = $('fd-donut'); el.replaceChildren();
+  donut(el, [{ name: 'Amount given', value: principal, color: col('--muted-bar'), ink: col('--fg') }, { name: 'Interest earned', value: interest, color: col('--income') }],
+    Math.min(260, Math.max(200, el.clientWidth || 240)), [['Worth today', 13, col('--muted')], [lakh(value), 24, col('--fg'), 600]]);
+
+  const years = d3.rollups(rows, (v) => ({ months: v.length, interest: d3.sum(v, (r) => r.interest), value: v[v.length - 1].value }), (r) => r.year).map(([year, v]) => ({ year, ...v }));
+  rowsInto($('fd-year-body'), years, [['year'], ['months', 1], ['interest', 1, inr], ['value', 1, inr]]);
+  footRow('fd-year-foot', [['All years'], [String(months), 1], [inr(interest), 1], [inr(value), 1]]);
+  rowsInto($('fd-month-body'), rows.slice().reverse(), [['month', 0, (v) => label(v)], ['name'], ['interest', 1, inr], ['run', 1, inr], ['value', 1, inr]]);
+  footRow('fd-month-foot', [['Total (' + months + ' months)'], [''], [inr(interest), 1], [''], [inr(value), 1]]);
 }
 
 let selCat = null;
@@ -992,12 +1075,13 @@ document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => sho
 if (location.hash === '#spend-most') showTab('most');
 if (location.hash === '#vamika-label') showTab('vamika');
 if (location.hash === '#deficit') showTab('deficit');
+if (location.hash === '#fixed-deposits') showTab('fd');
 $('search').addEventListener('input', (e) => { query = e.target.value.trim().toUpperCase(); renderDetail(); });
 const setYearMode = (m) => { yearMode = m; $('yc-total').setAttribute('aria-pressed', String(m === 'total')); $('yc-avg').setAttribute('aria-pressed', String(m === 'avg')); renderYearChart(); };
 $('yc-total').onclick = () => setYearMode('total');
 $('yc-avg').onclick = () => setYearMode('avg');
 let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { renderChart(); renderYearChart(); }, 150); });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { renderChart(); renderYearChart(); renderDeficit(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { renderChart(); renderYearChart(); renderDeficit(); renderDeposits(); });
 load();
 </script>
 </body>
