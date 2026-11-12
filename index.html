@@ -427,7 +427,7 @@ footer { font-size: .8rem; color: var(--muted); }
       <p class="note" id="fd-note"></p>
       <div class="bill">
         <div><span>Amount given</span><b id="fd-principal">—</b></div>
-        <div><span>Interest per month</span><b id="fd-rate">—</b></div>
+        <div><span>Interest (24% a year)</span><b id="fd-rate">—</b></div>
         <div><span>Months completed</span><b id="fd-months">—</b></div>
         <div><span>Interest so far</span><b id="fd-interest">—</b></div>
         <div><span>Total value today</span><b id="fd-value">—</b></div>
@@ -683,9 +683,9 @@ function renderDeposits() {
   const principal = d3.sum(DEPOSITS, (d) => d.principal), perMonth = d3.sum(DEPOSITS, (d) => d.monthly);
   const interest = d3.sum(rows, (r) => r.interest), value = principal + interest;
   const months = new Set(rows.map((r) => r.month)).size;
-  setText('fd-principal', inr(principal)); setText('fd-rate', inr(perMonth));
+  setText('fd-principal', inr(principal)); setText('fd-rate', inr(perMonth) + ' / month');
   setText('fd-months', String(months)); setText('fd-interest', inr(interest)); setText('fd-value', inr(value));
-  setText('fd-note', DEPOSITS.map((d) => `${d.name}: ${inr(d.principal)} from ${label(d.start)}, earning ${inr(d.monthly)} interest every month (${inr(d.monthly * 12)} a year).`).join(' ')
+  setText('fd-note', DEPOSITS.map((d) => `${d.name}: ${inr(d.principal)} from ${label(d.start)}, earning ${inr(d.monthly)} interest every month: ${Math.round((1200 * d.monthly) / d.principal)}% a year, ${inr(d.monthly * 12)} a year.`).join(' ')
     + ` Next ${inr(perMonth)} is added when ${label(thisMonth)} ends.`);
 
   const css = getComputedStyle(document.documentElement);
