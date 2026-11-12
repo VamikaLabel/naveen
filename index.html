@@ -130,7 +130,7 @@ footer { font-size: .8rem; color: var(--muted); }
     <div class="tile"><div class="k">Paid in <span id="t-month">—</span></div><div class="v" id="t-total">—</div><div class="n">Fixed plus daily spending</div></div>
     <div class="tile"><div class="k">Deficit that month</div><div class="v bad" id="t-deficit">—</div><div class="n">Spending minus salary, as the sheet works it out</div></div>
     <div class="tile"><div class="k">Paid in <span id="t-year-label">this year</span> so far</div><div class="v" id="t-year">—</div><div class="n">Closed months only</div></div>
-    <div class="tile"><div class="k">Monthly fixed expenses</div><div class="v" id="t-fixed">—</div><div class="n">From the FIXED EXPENDITURE tab</div></div>
+    <div class="tile"><div class="k">Monthly fixed expenses</div><div class="v" id="t-fixed">—</div><div class="n">From the FIXED EXPENDITURE tab, read fresh every time the page opens. Used for the running month.</div></div>
     <div class="tile"><div class="k">EMIs every month</div><div class="v" id="t-emi">—</div><div class="n">From the EMI tab</div></div>
   </section>
 
@@ -214,7 +214,7 @@ footer { font-size: .8rem; color: var(--muted); }
       <input id="search" type="search" placeholder="Search items or categories" aria-label="Search items">
     </div>
     <div class="bill">
-      <div><span>Fixed expenses</span><b id="m-fixed">—</b></div>
+      <div><span id="m-fixed-k">Fixed expenses</span><b id="m-fixed">—</b></div>
       <div><span>Daily spending</span><b id="m-var">—</b></div>
       <div><span>Total paid</span><b id="m-total">—</b></div>
       <div><span>Income</span><b id="m-inc">—</b></div>
@@ -571,7 +571,10 @@ async function load() {
     const months = monthsUntilNow();
     const [fixedRows, emiRows, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), ...months.map(loadMonth)]);
     const monthly = ms.filter(Boolean).map(parseMonth);
-    STATE = { monthly, fixed: parseFixed(fixedRows), emi: parseEmi(emiRows), items: monthly.flatMap((m) => m.items) };
+    const fixedList = parseFixed(fixedRows), fixedNow = d3.sum(fixedList, (r) => r.amount);
+    // A month whose tab has no fixed figure yet (the running month) takes today's FIXED EXPENDITURE total.
+    monthly.forEach((m) => { if (m.fixed == null && fixedNow) { m.fixed = fixedNow; m.fixedFromTab = true; m.total = m.fixed + m.variable; } });
+    STATE = { monthly, fixed: fixedList, emi: parseEmi(emiRows), items: monthly.flatMap((m) => m.items) };
     if (!current || !monthly.some((m) => m.month === current)) current = monthly.length ? monthly[monthly.length - 1].month : null;
     render();
     $('status').className = 'status live';
@@ -775,8 +778,7 @@ function renderPickables() {
   rowsInto($('months-body'), monthly.slice().reverse(), [
     ['month', 0, (v, r) => label(v) + (r.closed ? '' : ' (open)')], ['fixed', 1, inr], ['variable', 1, inr], ['total', 1, inr], ['income', 1, inr], ['deficit', 1, inr]
   ], { onPick: (r) => pick(r.month), cls: (tr, r) => tr.classList.toggle('on', r.month === current) });
-  const cl = monthly.filter((m) => m.closed);
-  footRow('months-foot', [['Total (' + monthly.length + ' months)'], [inr(d3.sum(cl, (m) => m.fixed)), 1], [inr(d3.sum(monthly, (m) => m.variable)), 1], [inr(d3.sum(cl, (m) => m.total)), 1], [inr(d3.sum(monthly, (m) => m.income || 0)), 1], [inr(d3.sum(monthly, (m) => m.deficit || 0)), 1]]);
+  footRow('months-foot', [['Total (' + monthly.length + ' months)'], [inr(d3.sum(monthly, (m) => m.fixed || 0)), 1], [inr(d3.sum(monthly, (m) => m.variable)), 1], [inr(d3.sum(monthly, (m) => m.total || 0)), 1], [inr(d3.sum(monthly, (m) => m.income || 0)), 1], [inr(d3.sum(monthly, (m) => m.deficit || 0)), 1]]);
 
   const mat = d3.rollups(items.filter((x) => x.counted), (v) => d3.rollup(v, (w) => d3.sum(w, (x) => x.amount), (x) => x.category), (x) => x.month)
     .map(([month, byCat]) => { const r = { month, total: d3.sum([...byCat.values()]) }; for (const c of CAT_NAMES) r[c] = byCat.get(c) || 0; return r; })
@@ -801,6 +803,7 @@ function renderDetail() {
   if (!STATE || !current) return;
   $('month').value = current;
   const m = STATE.monthly.find((x) => x.month === current);
+  setText('m-fixed-k', m.fixedFromTab ? 'Fixed expenses (from FIXED EXPENDITURE tab)' : 'Fixed expenses');
   setText('m-fixed', inr(m.fixed)); setText('m-var', inr(m.variable)); setText('m-total', inr(m.total));
   setText('m-inc', inr(m.income)); setText('m-def', inr(m.deficit));
   const all = m.items;
@@ -942,7 +945,7 @@ function renderDeficit() {
 function renderChart() {
   const el = $('chart'); el.replaceChildren();
   if (!STATE) return;
-  const rows = STATE.monthly.map((m) => ({ m: m.month, fixed: m.closed ? m.fixed : 0, variable: m.variable || 0, income: m.income, open: !m.closed }));
+  const rows = STATE.monthly.map((m) => ({ m: m.month, fixed: m.fixed || 0, variable: m.variable || 0, income: m.income, open: !m.closed }));
   const W = Math.max(300, el.clientWidth), H = 290;
   const css = getComputedStyle(document.documentElement);
   const col = (n) => css.getPropertyValue(n).trim();
@@ -971,8 +974,8 @@ function renderChart() {
     .attr('x', (r) => x(r.m) - (x.step() * x.paddingInner()) / 2).attr('width', x.step()).attr('y', 0).attr('height', H - 24).attr('fill', 'transparent').style('cursor', 'pointer')
     .on('mousemove', (ev, r) => {
       const h = document.createElement('div'); h.className = 'h'; h.textContent = label(r.m) + (r.open ? ' (open)' : '');
-      const parts = [h]; if (!r.open) parts.push(line('Fixed', r.fixed)); parts.push(line('Daily', r.variable));
-      if (!r.open) parts.push(line('Total paid', r.fixed + r.variable)); if (r.income != null) parts.push(line('Income', r.income));
+      const parts = [h]; parts.push(line('Fixed', r.fixed)); parts.push(line('Daily', r.variable));
+      parts.push(line('Total paid', r.fixed + r.variable)); if (r.income != null) parts.push(line('Income', r.income));
       tip.replaceChildren(...parts); tip.hidden = false;
       const [px, py] = d3.pointer(ev, el);
       tip.style.left = Math.min(Math.max(0, px + 12), el.clientWidth - tip.offsetWidth) + 'px';
