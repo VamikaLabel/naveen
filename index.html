@@ -644,13 +644,28 @@ function parseCSV(text) {
   return rows;
 }
 
+// Google refuses bursts of requests (HTTP 429), so at most 4 go out at once and a refused one is retried.
+let inFlight = 0; const waiting = [];
+const slot = () => (inFlight < 4 ? (inFlight++, Promise.resolve()) : new Promise((res) => waiting.push(res)));
+const release = () => { const next = waiting.shift(); if (next) next(); else inFlight--; };
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
 async function fetchTab(name, range, id = SHEET_ID) {
   const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&headers=0&sheet=${encodeURIComponent(name)}${range ? '&range=' + range : ''}&_=${Date.now()}`;
-  const r = await fetch(url, { cache: 'no-store' });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  const t = await r.text();
-  if (/^\s*</.test(t)) throw new Error('not-public');
-  return parseCSV(t);
+  for (let attempt = 0; ; attempt++) {
+    await slot();
+    let r;
+    try { r = await fetch(url, { cache: 'no-store' }); }
+    catch (e) { r = null; }
+    finally { release(); }
+    if (r && r.ok) {
+      const t = await r.text();
+      if (/^\s*</.test(t)) throw new Error('not-public');
+      return parseCSV(t);
+    }
+    if (attempt >= 3 || (r && r.status !== 429 && r.status < 500)) throw new Error(r ? 'HTTP ' + r.status : 'Failed to fetch');
+    await sleep(1000 * 2 ** attempt + Math.random() * 500);
+  }
 }
 
 function monthsUntilNow() {
@@ -669,12 +684,17 @@ const belongsTo = (rows, ym) => {
   return rows.some((r) => (r[0] || '').trim().endsWith(tag));
 };
 
+// Tab names found before are remembered in this browser, so each month costs one request instead of up to five guesses.
+const tabMemory = (() => { try { return JSON.parse(localStorage.getItem('naveen-tabs') || '{}'); } catch (e) { return {}; } })();
 async function loadMonth(ym) {
   const mi = Number(ym.slice(5, 7)) - 1, y = ym.slice(0, 4);
-  const names = [KNOWN_TABS[ym], `${FULL[mi]}-${y}`, `${SHORT[mi]}-${y}`, `${FULL[mi]} -${y}`, `${SHORT[mi]} -${y}`].filter((v, i, a) => v && a.indexOf(v) === i);
+  const names = [tabMemory[ym], KNOWN_TABS[ym], `${FULL[mi]}-${y}`, `${SHORT[mi]}-${y}`, `${FULL[mi]} -${y}`, `${SHORT[mi]} -${y}`].filter((v, i, a) => v && a.indexOf(v) === i);
   for (const n of names) {
-    try { const rows = await fetchTab(n); if (belongsTo(rows, ym)) return { ym, tab: n, rows }; }
-    catch (e) { if (e.message === 'not-public') throw e; }
+    const rows = await fetchTab(n); // a refused request now fails the load instead of silently dropping the month
+    if (belongsTo(rows, ym)) {
+      if (tabMemory[ym] !== n) { tabMemory[ym] = n; try { localStorage.setItem('naveen-tabs', JSON.stringify(tabMemory)); } catch (e) {} }
+      return { ym, tab: n, rows };
+    }
   }
   return null;
 }
@@ -723,7 +743,8 @@ let query = '';
 
 const SITE_URL = 'https://vamikalabel.github.io/naveen/';
 
-async function load() {
+let monthCache = new Map();
+async function load(quick) {
   $('status').className = 'status'; setText('status-text', 'Loading the sheet…'); $('err').hidden = true;
   if (location.protocol === 'file:') {
     // Google does not answer pages opened straight from the computer, so send people to the website.
@@ -736,8 +757,12 @@ async function load() {
   }
   try {
     const months = monthsUntilNow();
+    // A quick (automatic) refresh re-reads only the last two months; older months come from the previous load.
+    const fresh = (ym, i) => !quick || i >= months.length - 2 || !monthCache.has(ym);
     const bookP = loadDaybook();
-    const [fixedRows, emiRows, deposits, investment, pl, daybook, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), loadDeposits(), loadInvestment(), loadPL(bookP), bookP, ...months.map(loadMonth)]);
+    const [fixedRows, emiRows, deposits, investment, pl, daybook, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), loadDeposits(), loadInvestment(), loadPL(bookP), bookP,
+      ...months.map((ym, i) => (fresh(ym, i) ? loadMonth(ym) : Promise.resolve(monthCache.get(ym))))]);
+    monthCache = new Map(ms.filter(Boolean).map((m) => [m.ym, m]));
     const monthly = ms.filter(Boolean).map(parseMonth);
     const fixedList = parseFixed(fixedRows), fixedNow = d3.sum(fixedList, (r) => r.amount);
     // A month whose tab has no fixed figure yet (the running month) takes today's FIXED EXPENDITURE total.
@@ -751,7 +776,9 @@ async function load() {
     $('status').className = 'status err';
     setText('status-text', 'Could not read the sheet');
     $('err').hidden = false;
-    $('err').textContent = e.message === 'not-public' || /Failed to fetch|NetworkError|Load failed/i.test(e.message)
+    $('err').textContent = /HTTP 429/.test(e.message)
+      ? 'Google is busy right now and turned the page away. Wait a minute, then press Refresh.'
+      : e.message === 'not-public' || /Failed to fetch|NetworkError|Load failed/i.test(e.message)
       ? 'The Google Sheet is not open for viewing. In the sheet, set Share → General access → "Anyone with the link" → Viewer, then press Refresh.'
       : 'Something went wrong reading the sheet (' + e.message + '). Press Refresh to try again.';
   }
@@ -1401,14 +1428,14 @@ function renderChart() {
     .on('click', (ev, r) => pick(r.m));
 }
 
-$('reload').onclick = load;
+$('reload').onclick = () => { lastLoad = Date.now(); load(); };
 $('db-month').onchange = () => { bookDay = null; renderDaybook(); };
 $('db-clear').onclick = () => { bookDay = null; renderDaybook(); };
-// Pick up sheet edits without a manual reload: re-read when the page comes back into view, and every 5 minutes while open.
+// Pick up sheet edits without a manual reload: re-read when the page comes back into view (after 2 minutes away) and every 10 minutes while open.
 let lastLoad = Date.now();
-const reloadIfStale = (ms) => { if (!document.hidden && Date.now() - lastLoad > ms) { lastLoad = Date.now(); load(); } };
-document.addEventListener('visibilitychange', () => reloadIfStale(30000));
-setInterval(() => reloadIfStale(300000), 60000);
+const reloadIfStale = (ms) => { if (!document.hidden && Date.now() - lastLoad > ms) { lastLoad = Date.now(); load(true); } };
+document.addEventListener('visibilitychange', () => reloadIfStale(120000));
+setInterval(() => reloadIfStale(600000), 60000);
 $('ce-close').onclick = () => { selCat = null; renderMost(); };
 $('ce-cat').onchange = (e) => { selCat = e.target.value; renderMost(); };
 document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
