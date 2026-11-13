@@ -125,6 +125,7 @@ footer { font-size: .8rem; color: var(--muted); }
     <button type="button" role="tab" id="tabbtn-fd" data-tab="fd" aria-selected="false">Vamika deposits</button>
     <button type="button" role="tab" id="tabbtn-inv" data-tab="inv" aria-selected="false">Vamika Label investment</button>
     <button type="button" role="tab" id="tabbtn-pl" data-tab="pl" aria-selected="false">Vamika Label P&amp;L</button>
+    <button type="button" role="tab" id="tabbtn-db" data-tab="db" aria-selected="false">Vamika Label day book</button>
   </nav>
 
   <div class="tab" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview">
@@ -547,6 +548,45 @@ footer { font-size: .8rem; color: var(--muted); }
     </section>
   </div>
 
+  <div class="tab" id="tab-db" role="tabpanel" aria-labelledby="tabbtn-db" hidden>
+    <section class="card">
+      <h2>Vamika Label day book</h2>
+      <p class="note" id="db-note">Read live from Sheet2 of the Investment sheet.</p>
+      <div class="controls">
+        <label for="db-month">Month</label>
+        <select id="db-month"></select>
+      </div>
+      <div class="bill">
+        <div><span>Credits (Cr, money in)</span><b id="db-in">—</b></div>
+        <div><span>Debits (Dr, money out)</span><b id="db-out">—</b></div>
+        <div><span>Net</span><b id="db-net">—</b></div>
+        <div><span>Days</span><b id="db-days">—</b></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Day by day</h2>
+      <p class="note">Newest first. Net = Cr − Dr for that day. Running total adds up from the first day. Click a day to see its entries.</p>
+      <div class="scroll tall"><table>
+        <thead><tr><th>Date</th><th class="num">Entries</th><th class="num">Cr (in)</th><th class="num">Dr (out)</th><th class="num">Net</th><th class="num">Running total</th></tr></thead>
+        <tbody id="db-day-body"></tbody>
+        <tfoot><tr id="db-day-foot"></tr></tfoot>
+      </table></div>
+    </section>
+
+    <section class="card">
+      <div class="controls" style="justify-content: space-between">
+        <h2 id="db-entry-title">Every entry</h2>
+        <button type="button" id="db-clear" hidden>Show all days</button>
+      </div>
+      <div class="scroll tall"><table>
+        <thead><tr><th>Date</th><th>Note</th><th class="num">Cr (in)</th><th class="num">Dr (out)</th></tr></thead>
+        <tbody id="db-entry-body"></tbody>
+        <tfoot><tr id="db-entry-foot"></tr></tfoot>
+      </table></div>
+    </section>
+  </div>
+
   <footer>Data comes straight from the Google Sheet. To change a number, edit the sheet and press Refresh here.</footer>
 </div>
 
@@ -696,12 +736,13 @@ async function load() {
   }
   try {
     const months = monthsUntilNow();
-    const [fixedRows, emiRows, deposits, investment, pl, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), loadDeposits(), loadInvestment(), loadPL(), ...months.map(loadMonth)]);
+    const bookP = loadDaybook();
+    const [fixedRows, emiRows, deposits, investment, pl, daybook, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), loadDeposits(), loadInvestment(), loadPL(bookP), bookP, ...months.map(loadMonth)]);
     const monthly = ms.filter(Boolean).map(parseMonth);
     const fixedList = parseFixed(fixedRows), fixedNow = d3.sum(fixedList, (r) => r.amount);
     // A month whose tab has no fixed figure yet (the running month) takes today's FIXED EXPENDITURE total.
     monthly.forEach((m) => { if (m.fixed == null && fixedNow) { m.fixed = fixedNow; m.fixedFromTab = true; m.total = m.fixed + m.variable; } });
-    STATE = { monthly, deposits, investment, pl, fixed: fixedList, emi: parseEmi(emiRows), items: monthly.flatMap((m) => m.items) };
+    STATE = { monthly, deposits, investment, pl, daybook, fixed: fixedList, emi: parseEmi(emiRows), items: monthly.flatMap((m) => m.items) };
     if (!current || !monthly.some((m) => m.month === current)) current = monthly.length ? monthly[monthly.length - 1].month : null;
     render();
     $('status').className = 'status live';
@@ -744,7 +785,8 @@ function showTab(name) {
   if (name === 'fd') renderDeposits();
   if (name === 'inv') renderInvestment();
   if (name === 'pl') renderPL();
-  const hash = { most: '#spend-most', vamika: '#vamika-label', deficit: '#deficit', fd: '#vamika-deposits', inv: '#investment', pl: '#profit-loss' }[name];
+  if (name === 'db') renderDaybook();
+  const hash = { most: '#spend-most', vamika: '#vamika-label', deficit: '#deficit', fd: '#vamika-deposits', inv: '#investment', pl: '#profit-loss', db: '#day-book' }[name];
   try { history.replaceState(null, '', hash || location.pathname); } catch (e) {}
 }
 
@@ -797,26 +839,36 @@ function renderInvestment() {
 
 // Investment sheet, "Sheet p/l": Month, Dr (money out), Cr (money in), P/L.
 // Months not yet written there are added up from the daily entries in Sheet2.
-async function loadPL() {
-  let rows, daily = [];
-  try { [rows, daily] = await Promise.all([fetchTab('Sheet p/l', null, INV_ID), fetchTab('Sheet2', null, INV_ID).catch(() => [])]); } catch (e) { return null; }
+// Sheet2 has two side-by-side day books: date, Cr (money in), Dr (money out), note (A–D and F–I).
+// Rows without a date belong to the last date above them; a row with no date and a number as its note is a weekly subtotal.
+async function loadDaybook() {
+  let rows;
+  try { rows = await fetchTab('Sheet2', null, INV_ID); } catch (e) { return null; }
+  const out = [];
+  for (const [dc, ic, oc, tc] of [[0, 1, 2, 3], [5, 6, 7, 8]]) {
+    let cur = null;
+    rows.forEach((r, k) => {
+      const d = (r[dc] || '').trim(), m = d.match(/^(\d{1,2})-(\d{1,2})-(\d{4}|\d{2})(?!\d)/);
+      if (m) cur = (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+      if (!d && num(r[tc]) != null) return;
+      const i = num(r[ic]), o = num(r[oc]);
+      if (!cur || (i == null && o == null)) return;
+      out.push({ date: cur, ym: cur.slice(0, 7), inn: i || 0, out: o || 0, note: (r[tc] || '').trim(), order: dc * 1000 + k });
+    });
+  }
+  return out;
+}
+
+// Investment sheet, "Sheet p/l": Month, Dr (money out), Cr (money in), P/L.
+// Months not yet written there are added up from the day book (Sheet2).
+async function loadPL(bookP) {
+  let rows;
+  try { rows = await fetchTab('Sheet p/l', null, INV_ID); } catch (e) { return null; }
   if (!rows.length || !/^month/i.test((rows[0][0] || '').trim())) return null; // tab missing: Google sent another tab
   const out = rows.slice(1).filter((r) => (r[0] || '').trim() && (num(r[1]) != null || num(r[2]) != null) && !/total/i.test(r[0]))
     .map((r) => { const o = num(r[1]) || 0, i = num(r[2]) || 0; return { month: r[0].trim(), mi: FULL.findIndex((f) => f.startsWith(r[0].trim().toUpperCase().slice(0, 3))), out: o, inn: i, net: i - o, sheet: num(r[3]), source: 'p/l' }; });
   const have = new Set(out.map((r) => r.mi));
-  const sums = new Map();
-  // Sheet2 has two side-by-side day books: date, money in, money out, note (A–D and F–I).
-  for (const [dc, ic, oc, tc] of [[0, 1, 2, 3], [5, 6, 7, 8]]) {
-    let cur = null;
-    for (const r of daily) {
-      const d = (r[dc] || '').trim(), m = d.match(/^(\d{1,2})-(\d{1,2})-(\d{2}|\d{4})$/);
-      if (m) cur = (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + m[2].padStart(2, '0');
-      if (!d && num(r[tc]) != null) continue; // weekly subtotal row
-      const i = num(r[ic]), o = num(r[oc]);
-      if (!cur || (i == null && o == null)) continue;
-      const a = sums.get(cur) || { inn: 0, out: 0, n: 0 }; a.inn += i || 0; a.out += o || 0; a.n++; sums.set(cur, a);
-    }
-  }
+  const sums = d3.rollup((await bookP) || [], (v) => ({ inn: d3.sum(v, (x) => x.inn), out: d3.sum(v, (x) => x.out), n: v.length }), (x) => x.ym);
   const now = new Date(), thisYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
   [...sums.keys()].sort().forEach((ym) => {
     const mi = Number(ym.slice(5)) - 1; if (have.has(mi)) return;
@@ -824,6 +876,40 @@ async function loadPL() {
     out.push({ month: name + (ym === thisYM ? ' (so far)' : ''), mi, out: a.out, inn: a.inn, net: a.inn - a.out, sheet: null, source: 'daily', entries: a.n });
   });
   return out;
+}
+
+let bookDay = null;
+function renderDaybook() {
+  if (!STATE) return;
+  const all = STATE.daybook;
+  if (!all) { setText('db-note', 'Could not read Sheet2 of the Investment sheet.'); return; }
+  const sel = $('db-month'), keep = sel.value;
+  const months = [...new Set(all.map((x) => x.ym))].sort().reverse();
+  sel.replaceChildren(new Option('All months', 'all'), ...months.map((m) => new Option(label(m), m)));
+  sel.value = keep && [...sel.options].some((o) => o.value === keep) ? keep : 'all';
+  const p = sel.value;
+  const list = all.filter((x) => p === 'all' || x.ym === p);
+  const tin = d3.sum(list, (x) => x.inn), tout = d3.sum(list, (x) => x.out), net = tin - tout;
+  const signed = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + inr(Math.abs(v));
+  const fmtD = (d) => d.slice(8, 10) + '-' + d.slice(5, 7) + '-' + d.slice(0, 4);
+  const days = d3.rollups(list, (v) => ({ n: v.length, inn: d3.sum(v, (x) => x.inn), out: d3.sum(v, (x) => x.out) }), (x) => x.date)
+    .map(([date, v]) => ({ date, ...v, net: v.inn - v.out })).sort((a, b) => (a.date < b.date ? -1 : 1));
+  let run = 0; days.forEach((d) => { d.run = (run += d.net); });
+  setText('db-note', `Read live from Sheet2 of the Investment sheet. Cr is money in, Dr is money out. ${all.length} entries over ${new Set(all.map((x) => x.date)).size} days.`);
+  setText('db-in', inr(tin)); setText('db-out', inr(tout)); setText('db-net', signed(net)); $('db-net').style.color = net >= 0 ? 'var(--ok)' : 'var(--bad)';
+  setText('db-days', String(days.length));
+  if (bookDay && !days.some((d) => d.date === bookDay)) bookDay = null;
+  const color = (t, v, i) => requestAnimationFrame(() => { const c = t.cells[i]; if (c) c.style.color = v >= 0 ? 'var(--ok)' : 'var(--bad)'; });
+  rowsInto($('db-day-body'), days.slice().reverse(), [['date', 0, fmtD], ['n', 1], ['inn', 1, inr], ['out', 1, inr], ['net', 1, signed], ['run', 1, signed]], {
+    onPick: (r) => { bookDay = bookDay === r.date ? null : r.date; renderDaybook(); },
+    cls: (t, r) => { t.classList.toggle('on', r.date === bookDay); color(t, r.net, 4); }
+  });
+  footRow('db-day-foot', [['Total (' + days.length + ' days)'], [String(list.length), 1], [inr(tin), 1], [inr(tout), 1], [signed(net), 1], ['', 1]]);
+  const ent = list.filter((x) => !bookDay || x.date === bookDay).sort((a, b) => (a.date === b.date ? b.order - a.order : a.date < b.date ? 1 : -1));
+  setText('db-entry-title', bookDay ? 'Entries on ' + fmtD(bookDay) : 'Every entry');
+  $('db-clear').hidden = !bookDay;
+  rowsInto($('db-entry-body'), ent, [['date', 0, fmtD], ['note'], ['inn', 1, (v) => (v ? inr(v) : '')], ['out', 1, (v) => (v ? inr(v) : '')]]);
+  footRow('db-entry-foot', [['Total'], [ent.length + ' entries'], [inr(d3.sum(ent, (x) => x.inn)), 1], [inr(d3.sum(ent, (x) => x.out)), 1]]);
 }
 
 function renderPL() {
@@ -1088,6 +1174,7 @@ function render() {
   renderDeposits();
   renderInvestment();
   renderPL();
+  renderDaybook();
 
   const head = $('matrix-head');
   head.replaceChildren(...['Month', ...CAT_NAMES, 'Daily total'].map((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num';
@@ -1315,6 +1402,8 @@ function renderChart() {
 }
 
 $('reload').onclick = load;
+$('db-month').onchange = () => { bookDay = null; renderDaybook(); };
+$('db-clear').onclick = () => { bookDay = null; renderDaybook(); };
 // Pick up sheet edits without a manual reload: re-read when the page comes back into view, and every 5 minutes while open.
 let lastLoad = Date.now();
 const reloadIfStale = (ms) => { if (!document.hidden && Date.now() - lastLoad > ms) { lastLoad = Date.now(); load(); } };
@@ -1329,6 +1418,7 @@ if (location.hash === '#deficit') showTab('deficit');
 if (location.hash === '#vamika-deposits' || location.hash === '#fixed-deposits') showTab('fd');
 if (location.hash === '#investment') showTab('inv');
 if (location.hash === '#profit-loss') showTab('pl');
+if (location.hash === '#day-book') showTab('db');
 $('search').addEventListener('input', (e) => { query = e.target.value.trim().toUpperCase(); renderDetail(); });
 const setYearMode = (m) => { yearMode = m; $('yc-total').setAttribute('aria-pressed', String(m === 'total')); $('yc-avg').setAttribute('aria-pressed', String(m === 'avg')); renderYearChart(); };
 $('yc-total').onclick = () => setYearMode('total');
