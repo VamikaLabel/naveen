@@ -531,7 +531,7 @@ footer { font-size: .8rem; color: var(--muted); }
       </div>
       <div class="card">
         <h2>Month by month</h2>
-        <p class="note">Green bar: money in. Orange bar: money out. The figure above each month is its profit (+) or loss (−).</p>
+        <p class="note">Green bar: money in. Orange bar: money out. The figure above each month is its profit (+) or loss (−). * = added up from the daily entries in Sheet2.</p>
         <div class="chart" id="pl-chart" style="min-height: 300px"></div>
       </div>
     </section>
@@ -796,12 +796,34 @@ function renderInvestment() {
 }
 
 // Investment sheet, "Sheet p/l": Month, Dr (money out), Cr (money in), P/L.
+// Months not yet written there are added up from the daily entries in Sheet2.
 async function loadPL() {
-  let rows;
-  try { rows = await fetchTab('Sheet p/l', null, INV_ID); } catch (e) { return null; }
+  let rows, daily = [];
+  try { [rows, daily] = await Promise.all([fetchTab('Sheet p/l', null, INV_ID), fetchTab('Sheet2', null, INV_ID).catch(() => [])]); } catch (e) { return null; }
   if (!rows.length || !/^month/i.test((rows[0][0] || '').trim())) return null; // tab missing: Google sent another tab
-  return rows.slice(1).filter((r) => (r[0] || '').trim() && (num(r[1]) != null || num(r[2]) != null) && !/total/i.test(r[0]))
-    .map((r) => { const out = num(r[1]) || 0, inn = num(r[2]) || 0, sheet = num(r[3]); return { month: r[0].trim(), out, inn, net: inn - out, sheet }; });
+  const out = rows.slice(1).filter((r) => (r[0] || '').trim() && (num(r[1]) != null || num(r[2]) != null) && !/total/i.test(r[0]))
+    .map((r) => { const o = num(r[1]) || 0, i = num(r[2]) || 0; return { month: r[0].trim(), mi: FULL.findIndex((f) => f.startsWith(r[0].trim().toUpperCase().slice(0, 3))), out: o, inn: i, net: i - o, sheet: num(r[3]), source: 'p/l' }; });
+  const have = new Set(out.map((r) => r.mi));
+  const sums = new Map();
+  // Sheet2 has two side-by-side day books: date, money in, money out, note (A–D and F–I).
+  for (const [dc, ic, oc, tc] of [[0, 1, 2, 3], [5, 6, 7, 8]]) {
+    let cur = null;
+    for (const r of daily) {
+      const d = (r[dc] || '').trim(), m = d.match(/^(\d{1,2})-(\d{1,2})-(\d{2}|\d{4})$/);
+      if (m) cur = (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + m[2].padStart(2, '0');
+      if (!d && num(r[tc]) != null) continue; // weekly subtotal row
+      const i = num(r[ic]), o = num(r[oc]);
+      if (!cur || (i == null && o == null)) continue;
+      const a = sums.get(cur) || { inn: 0, out: 0, n: 0 }; a.inn += i || 0; a.out += o || 0; a.n++; sums.set(cur, a);
+    }
+  }
+  const now = new Date(), thisYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  [...sums.keys()].sort().forEach((ym) => {
+    const mi = Number(ym.slice(5)) - 1; if (have.has(mi)) return;
+    const a = sums.get(ym), name = FULL[mi][0] + FULL[mi].slice(1).toLowerCase();
+    out.push({ month: name + (ym === thisYM ? ' (so far)' : ''), mi, out: a.out, inn: a.inn, net: a.inn - a.out, sheet: null, source: 'daily', entries: a.n });
+  });
+  return out;
 }
 
 function renderPL() {
@@ -811,7 +833,9 @@ function renderPL() {
   const tin = d3.sum(rows, (r) => r.inn), tout = d3.sum(rows, (r) => r.out), net = tin - tout;
   const best = d3.greatest(rows, (r) => r.net);
   const signed = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + inr(Math.abs(v));
-  setText('pl-note', `Read live from the Investment sheet ("Sheet p/l"). ${rows.length} months. Dr is money going out of the shop, Cr is money coming in.`);
+  const fromDaily = rows.filter((r) => r.source === 'daily');
+  setText('pl-note', `Read live from the Investment sheet. ${rows.length} months. Dr is money going out of the shop, Cr is money coming in.`
+    + (fromDaily.length ? ` ${fromDaily.map((r) => r.month).join(', ')}: not in "Sheet p/l" yet, so added up from the daily entries in Sheet2 (${d3.sum(fromDaily, (r) => r.entries)} entries).` : ''));
   setText('pl-in', inr(tin)); setText('pl-out', inr(tout));
   setText('pl-net-k', net >= 0 ? 'Overall profit' : 'Overall loss');
   setText('pl-net', signed(net)); $('pl-net').style.color = net >= 0 ? 'var(--ok)' : 'var(--bad)';
@@ -837,13 +861,13 @@ function renderPL() {
         .append('title').text(`${r.month}: ${k === 'inn' ? 'money in' : 'money out'} ${inr(r[k])}`));
       g.append('text').attr('x', x0.bandwidth() / 2).attr('y', y(Math.max(r.inn, r.out)) - 8).attr('text-anchor', 'middle').style('font-size', '12px').style('font-weight', 600)
         .attr('fill', r.net >= 0 ? col('--ok') : col('--bad')).text(signed(r.net).replace('₹', ''));
-      g.append('text').attr('x', x0.bandwidth() / 2).attr('y', H - 8).attr('text-anchor', 'middle').style('font-size', '11px').attr('fill', col('--muted')).text(r.month.slice(0, 3));
+      g.append('text').attr('x', x0.bandwidth() / 2).attr('y', H - 8).attr('text-anchor', 'middle').style('font-size', '11px').attr('fill', col('--muted')).text(r.month.slice(0, 3) + (r.source === 'daily' ? '*' : ''));
     });
   }
 
   let run = 0;
   const tr = rows.map((r) => ({ ...r, run: (run += r.net) }));
-  rowsInto($('pl-body'), tr, [['month'], ['out', 1, inr], ['inn', 1, inr], ['net', 1, signed], ['run', 1, signed]], {
+  rowsInto($('pl-body'), tr, [['month', 0, (v, r) => v + (r.source === 'daily' ? ' · from daily entries' : '')], ['out', 1, inr], ['inn', 1, inr], ['net', 1, signed], ['run', 1, signed]], {
     cls: (t, r) => requestAnimationFrame(() => { const c = t.cells[3]; if (c) c.style.color = r.net >= 0 ? 'var(--ok)' : 'var(--bad)'; })
   });
   footRow('pl-foot', [['Total'], [inr(tout), 1], [inr(tin), 1], [signed(net), 1], ['', 1]]);
