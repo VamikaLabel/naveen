@@ -124,6 +124,7 @@ footer { font-size: .8rem; color: var(--muted); }
     <button type="button" role="tab" id="tabbtn-deficit" data-tab="deficit" aria-selected="false">Deficit</button>
     <button type="button" role="tab" id="tabbtn-fd" data-tab="fd" aria-selected="false">Vamika deposits</button>
     <button type="button" role="tab" id="tabbtn-inv" data-tab="inv" aria-selected="false">Vamika Label investment</button>
+    <button type="button" role="tab" id="tabbtn-pl" data-tab="pl" aria-selected="false">Vamika Label P&amp;L</button>
   </nav>
 
   <div class="tab" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview">
@@ -509,6 +510,43 @@ footer { font-size: .8rem; color: var(--muted); }
     </section>
   </div>
 
+  <div class="tab" id="tab-pl" role="tabpanel" aria-labelledby="tabbtn-pl" hidden>
+    <section class="card">
+      <h2>Vamika Label profit &amp; loss</h2>
+      <p class="note" id="pl-note">Read live from the Investment sheet ("Sheet p/l").</p>
+      <div class="bill">
+        <div><span>Money in (Cr)</span><b id="pl-in">—</b></div>
+        <div><span>Money out (Dr)</span><b id="pl-out">—</b></div>
+        <div><span id="pl-net-k">Profit / loss</span><b id="pl-net">—</b></div>
+        <div><span>Best month</span><b id="pl-best">—</b></div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Money in vs money out</h2>
+        <p class="note">The whole circle is all the money that moved through the shop.</p>
+        <div class="donut" id="pl-donut"></div>
+        <div class="legend"><span><i style="background: var(--accent)"></i>Money in (Cr)</span><span><i style="background: var(--income)"></i>Money out (Dr)</span></div>
+      </div>
+      <div class="card">
+        <h2>Month by month</h2>
+        <p class="note">Green bar: money in. Orange bar: money out. The figure above each month is its profit (+) or loss (−).</p>
+        <div class="chart" id="pl-chart" style="min-height: 300px"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Monthly statement</h2>
+      <p class="note" id="pl-table-note">Profit / loss = money in − money out.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Month</th><th class="num">Money out (Dr)</th><th class="num">Money in (Cr)</th><th class="num">Profit / loss</th><th class="num">Running total</th></tr></thead>
+        <tbody id="pl-body"></tbody>
+        <tfoot><tr id="pl-foot"></tr></tfoot>
+      </table></div>
+    </section>
+  </div>
+
   <footer>Data comes straight from the Google Sheet. To change a number, edit the sheet and press Refresh here.</footer>
 </div>
 
@@ -658,12 +696,12 @@ async function load() {
   }
   try {
     const months = monthsUntilNow();
-    const [fixedRows, emiRows, deposits, investment, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), loadDeposits(), loadInvestment(), ...months.map(loadMonth)]);
+    const [fixedRows, emiRows, deposits, investment, pl, ...ms] = await Promise.all([fetchTab('FIXED EXPENDITURE'), fetchTab('EMI'), loadDeposits(), loadInvestment(), loadPL(), ...months.map(loadMonth)]);
     const monthly = ms.filter(Boolean).map(parseMonth);
     const fixedList = parseFixed(fixedRows), fixedNow = d3.sum(fixedList, (r) => r.amount);
     // A month whose tab has no fixed figure yet (the running month) takes today's FIXED EXPENDITURE total.
     monthly.forEach((m) => { if (m.fixed == null && fixedNow) { m.fixed = fixedNow; m.fixedFromTab = true; m.total = m.fixed + m.variable; } });
-    STATE = { monthly, deposits, investment, fixed: fixedList, emi: parseEmi(emiRows), items: monthly.flatMap((m) => m.items) };
+    STATE = { monthly, deposits, investment, pl, fixed: fixedList, emi: parseEmi(emiRows), items: monthly.flatMap((m) => m.items) };
     if (!current || !monthly.some((m) => m.month === current)) current = monthly.length ? monthly[monthly.length - 1].month : null;
     render();
     $('status').className = 'status live';
@@ -705,7 +743,8 @@ function showTab(name) {
   if (name === 'deficit') renderDeficit();
   if (name === 'fd') renderDeposits();
   if (name === 'inv') renderInvestment();
-  const hash = { most: '#spend-most', vamika: '#vamika-label', deficit: '#deficit', fd: '#vamika-deposits', inv: '#investment' }[name];
+  if (name === 'pl') renderPL();
+  const hash = { most: '#spend-most', vamika: '#vamika-label', deficit: '#deficit', fd: '#vamika-deposits', inv: '#investment', pl: '#profit-loss' }[name];
   try { history.replaceState(null, '', hash || location.pathname); } catch (e) {}
 }
 
@@ -754,6 +793,62 @@ function renderInvestment() {
 
   rowsInto($('inv-body'), list, [['n'], ['item'], ['group'], ['amount', 1, (v) => (100 * v / (total || 1)).toFixed(1) + '%'], ['amount', 1, inr]]);
   footRow('inv-foot', [[''], ['Grand total'], [''], ['100%', 1], [inr(total), 1]]);
+}
+
+// Investment sheet, "Sheet p/l": Month, Dr (money out), Cr (money in), P/L.
+async function loadPL() {
+  let rows;
+  try { rows = await fetchTab('Sheet p/l', null, INV_ID); } catch (e) { return null; }
+  if (!rows.length || !/^month/i.test((rows[0][0] || '').trim())) return null; // tab missing: Google sent another tab
+  return rows.slice(1).filter((r) => (r[0] || '').trim() && (num(r[1]) != null || num(r[2]) != null) && !/total/i.test(r[0]))
+    .map((r) => { const out = num(r[1]) || 0, inn = num(r[2]) || 0, sheet = num(r[3]); return { month: r[0].trim(), out, inn, net: inn - out, sheet }; });
+}
+
+function renderPL() {
+  if (!STATE) return;
+  const rows = STATE.pl;
+  if (!rows) { setText('pl-note', 'Could not read "Sheet p/l" in the Investment sheet. Check the tab name and that the sheet is shared as "Anyone with the link" → Viewer.'); return; }
+  const tin = d3.sum(rows, (r) => r.inn), tout = d3.sum(rows, (r) => r.out), net = tin - tout;
+  const best = d3.greatest(rows, (r) => r.net);
+  const signed = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + inr(Math.abs(v));
+  setText('pl-note', `Read live from the Investment sheet ("Sheet p/l"). ${rows.length} months. Dr is money going out of the shop, Cr is money coming in.`);
+  setText('pl-in', inr(tin)); setText('pl-out', inr(tout));
+  setText('pl-net-k', net >= 0 ? 'Overall profit' : 'Overall loss');
+  setText('pl-net', signed(net)); $('pl-net').style.color = net >= 0 ? 'var(--ok)' : 'var(--bad)';
+  setText('pl-best', best ? best.month + ' ' + signed(best.net) : '—');
+
+  const css = getComputedStyle(document.documentElement);
+  const col = (k) => css.getPropertyValue(k).trim();
+  const dn = $('pl-donut'); dn.replaceChildren();
+  donut(dn, [{ name: 'Money in', value: tin, color: col('--accent') }, { name: 'Money out', value: tout, color: col('--income') }], Math.min(260, Math.max(200, dn.clientWidth || 240)),
+    [[net >= 0 ? 'Profit' : 'Loss', 13, col('--muted')], [signed(net), 20, net >= 0 ? col('--ok') : col('--bad'), 600]]);
+
+  const el = $('pl-chart'); el.replaceChildren();
+  if (el.clientWidth) {
+    const W = Math.max(300, el.clientWidth), H = 300, top = 26, bottom = 28;
+    const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).style('display', 'block');
+    const x0 = d3.scaleBand(rows.map((r) => r.month), [4, W - 4]).paddingInner(0.25);
+    const x1 = d3.scaleBand(['inn', 'out'], [0, x0.bandwidth()]).padding(0.1);
+    const y = d3.scaleLinear([0, (d3.max(rows, (r) => Math.max(r.inn, r.out)) || 1) * 1.05], [H - bottom, top]);
+    svg.append('line').attr('x1', 4).attr('x2', W - 4).attr('y1', y(0)).attr('y2', y(0)).attr('stroke', col('--line'));
+    rows.forEach((r) => {
+      const g = svg.append('g').attr('transform', `translate(${x0(r.month)},0)`);
+      [['inn', col('--accent')], ['out', col('--income')]].forEach(([k, c]) => g.append('rect').attr('x', x1(k)).attr('width', x1.bandwidth()).attr('y', y(r[k])).attr('height', y(0) - y(r[k])).attr('fill', c).attr('rx', 2)
+        .append('title').text(`${r.month}: ${k === 'inn' ? 'money in' : 'money out'} ${inr(r[k])}`));
+      g.append('text').attr('x', x0.bandwidth() / 2).attr('y', y(Math.max(r.inn, r.out)) - 8).attr('text-anchor', 'middle').style('font-size', '12px').style('font-weight', 600)
+        .attr('fill', r.net >= 0 ? col('--ok') : col('--bad')).text(signed(r.net).replace('₹', ''));
+      g.append('text').attr('x', x0.bandwidth() / 2).attr('y', H - 8).attr('text-anchor', 'middle').style('font-size', '11px').attr('fill', col('--muted')).text(r.month.slice(0, 3));
+    });
+  }
+
+  let run = 0;
+  const tr = rows.map((r) => ({ ...r, run: (run += r.net) }));
+  rowsInto($('pl-body'), tr, [['month'], ['out', 1, inr], ['inn', 1, inr], ['net', 1, signed], ['run', 1, signed]], {
+    cls: (t, r) => requestAnimationFrame(() => { const c = t.cells[3]; if (c) c.style.color = r.net >= 0 ? 'var(--ok)' : 'var(--bad)'; })
+  });
+  footRow('pl-foot', [['Total'], [inr(tout), 1], [inr(tin), 1], [signed(net), 1], ['', 1]]);
+  const off = rows.filter((r) => r.sheet != null && Math.abs(Math.abs(r.sheet) - Math.abs(r.net)) >= 1);
+  setText('pl-table-note', 'Profit / loss = money in − money out.' + (off.length ? ' Check in the sheet: ' + off.map((r) => `${r.month} P/L says ${inr(r.sheet)}, but Cr − Dr is ${signed(r.net)}`).join('; ') + '.' : ''));
 }
 
 // VAMIKA DEPOSITS tab: S.NO, PERSON, AMOUNT, INTEREST RATE (% a year), CALCULATE FROM (DD-MM-YYYY).
@@ -968,6 +1063,7 @@ function render() {
   renderDeficit();
   renderDeposits();
   renderInvestment();
+  renderPL();
 
   const head = $('matrix-head');
   head.replaceChildren(...['Month', ...CAT_NAMES, 'Daily total'].map((t, i) => { const th = document.createElement('th'); th.textContent = t; if (i) th.className = 'num';
@@ -1208,12 +1304,13 @@ if (location.hash === '#vamika-label') showTab('vamika');
 if (location.hash === '#deficit') showTab('deficit');
 if (location.hash === '#vamika-deposits' || location.hash === '#fixed-deposits') showTab('fd');
 if (location.hash === '#investment') showTab('inv');
+if (location.hash === '#profit-loss') showTab('pl');
 $('search').addEventListener('input', (e) => { query = e.target.value.trim().toUpperCase(); renderDetail(); });
 const setYearMode = (m) => { yearMode = m; $('yc-total').setAttribute('aria-pressed', String(m === 'total')); $('yc-avg').setAttribute('aria-pressed', String(m === 'avg')); renderYearChart(); };
 $('yc-total').onclick = () => setYearMode('total');
 $('yc-avg').onclick = () => setYearMode('avg');
-let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { renderChart(); renderYearChart(); }, 150); });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { renderChart(); renderYearChart(); renderDeficit(); renderDeposits(); renderInvestment(); });
+let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { renderChart(); renderYearChart(); renderPL(); }, 150); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { renderChart(); renderYearChart(); renderDeficit(); renderDeposits(); renderInvestment(); renderPL(); });
 load();
 </script>
 </body>
