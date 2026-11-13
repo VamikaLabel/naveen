@@ -477,7 +477,7 @@ footer { font-size: .8rem; color: var(--muted); }
   <div class="tab" id="tab-inv" role="tabpanel" aria-labelledby="tabbtn-inv" hidden>
     <section class="card">
       <h2>Vamika Label investment</h2>
-      <p class="note" id="inv-note">Read live from the Investment sheet (Sheet1).</p>
+      <p class="note" id="inv-note">Read live from the INVESTMENT tab of the Investment sheet.</p>
       <div class="bill">
         <div><span>Shop investment</span><b id="inv-main">—</b></div>
         <div><span>Other costs</span><b id="inv-other">—</b></div>
@@ -532,7 +532,7 @@ footer { font-size: .8rem; color: var(--muted); }
       </div>
       <div class="card">
         <h2>Month by month</h2>
-        <p class="note">Green bar: money in. Orange bar: money out. The figure above each month is its profit (+) or loss (−). * = added up from the daily entries in Sheet2.</p>
+        <p class="note">Green bar: money in. Orange bar: money out. The figure above each month is its profit (+) or loss (−). * = added up from the daily entries in DAY WISE.</p>
         <div class="chart" id="pl-chart" style="min-height: 300px"></div>
       </div>
     </section>
@@ -551,7 +551,7 @@ footer { font-size: .8rem; color: var(--muted); }
   <div class="tab" id="tab-db" role="tabpanel" aria-labelledby="tabbtn-db" hidden>
     <section class="card">
       <h2>Vamika Label day book</h2>
-      <p class="note" id="db-note">Read live from Sheet2 of the Investment sheet.</p>
+      <p class="note" id="db-note">Read live from the DAY WISE tab of the Investment sheet.</p>
       <div class="controls">
         <label for="db-month">Month</label>
         <select id="db-month"></select>
@@ -661,7 +661,9 @@ const release = () => { const next = waiting.shift(); if (next) next(); else inF
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
 async function fetchTab(name, range, id = SHEET_ID) {
-  const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&headers=0&sheet=${encodeURIComponent(name)}${range ? '&range=' + range : ''}&_=${Date.now()}`;
+  // A name like 'gid:123' picks the tab by its fixed id, so renaming the tab in the sheet does not break the page.
+  const which = name.startsWith('gid:') ? 'gid=' + name.slice(4) : 'sheet=' + encodeURIComponent(name);
+  const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&headers=0&${which}${range ? '&range=' + range : ''}&_=${Date.now()}`;
   for (let attempt = 0; ; attempt++) {
     await slot();
     let r;
@@ -827,12 +829,14 @@ function showTab(name) {
   try { history.replaceState(null, '', hash || location.pathname); } catch (e) {}
 }
 
-// Investment sheet, Sheet1: shop investment in columns A–B, other costs in D–E, each with its own Total row.
+// Investment sheet, INVESTMENT tab: shop investment in columns A–B, other costs in D–E, each with its own Total row.
 const INV_ID = '1-YlZpMbvz0cuaHvRv8Wszn5wml0sl4tUpLBmFOU1j9I';
+// Tabs of the Investment sheet by fixed id: INVESTMENT (was Sheet1), DAY WISE (was Sheet2), Sheet p/L.
+const INV_TAB = 'gid:0', DAY_TAB = 'gid:1747519147', PL_TAB = 'gid:903902225';
 
 async function loadInvestment() {
   let rows;
-  try { rows = await fetchTab('Sheet1', null, INV_ID); } catch (e) { return null; }
+  try { rows = await fetchTab(INV_TAB, null, INV_ID); } catch (e) { return null; }
   const out = [];
   const take = (name, amt, group) => { const n = (name || '').trim(), v = num(amt); if (n && v != null && !/total|^investment$|^amount$/i.test(n)) out.push({ item: n, amount: v, group }); };
   rows.forEach((r) => { take(r[0], r[1], 'Shop investment'); take(r[3], r[4], 'Other costs'); });
@@ -845,7 +849,7 @@ function renderInvestment() {
   if (!list) { setText('inv-note', 'Could not read the Investment sheet. In that sheet, set Share → General access → "Anyone with the link" → Viewer, then press Refresh.'); return; }
   const total = d3.sum(list, (x) => x.amount);
   const main = d3.sum(list.filter((x) => x.group === 'Shop investment'), (x) => x.amount);
-  setText('inv-note', `Read live from the Investment sheet (Sheet1). ${list.length} entries. Add a row there and it shows up here.`);
+  setText('inv-note', `Read live from the INVESTMENT tab of the Investment sheet. ${list.length} entries. Add a row there and it shows up here.`);
   setText('inv-main', inr(main)); setText('inv-other', inr(total - main)); setText('inv-total', inr(total)); setText('inv-count', String(list.length));
 
   const sorted = list.slice().sort((a, b) => b.amount - a.amount);
@@ -874,22 +878,23 @@ function renderInvestment() {
   footRow('inv-foot', [[''], ['Grand total'], [''], ['100%', 1], [inr(total), 1]]);
 }
 
-// Investment sheet, "Sheet p/l": Month, Dr (money out), Cr (money in), P/L.
-// Months not yet written there are added up from the daily entries in Sheet2.
-// Sheet2 has two side-by-side day books: date, Cr (money in), Dr (money out), note (A–D and F–I).
+// DAY WISE (was Sheet2) has two side-by-side day books: date, Cr (money in), Dr (money out), note (A–D and F–I).
 // Rows without a date belong to the last date above them; a row with no date and a number as its note is a weekly subtotal.
 async function loadDaybook() {
   let rows;
-  try { rows = await fetchTab('Sheet2', null, INV_ID); } catch (e) { return null; }
+  try { rows = await fetchTab(DAY_TAB, null, INV_ID); } catch (e) { return null; }
   const out = [];
   for (const [dc, ic, oc, tc] of [[0, 1, 2, 3], [5, 6, 7, 8]]) {
-    let cur = null;
+    let cur = null, segIn = 0, segOut = 0, segN = 0;
     rows.forEach((r, k) => {
       const d = (r[dc] || '').trim(), m = d.match(/^(\d{1,2})-(\d{1,2})-(\d{4}|\d{2})(?!\d)/);
       if (m) cur = (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
-      if (!d && num(r[tc]) != null) return;
       const i = num(r[ic]), o = num(r[oc]);
+      // "Weekly total" rows: Google blanks their label, so spot them by a number in the note column
+      // or by a blank note with Cr and Dr equal to the entries since the last weekly total.
+      if (!m && (/total/i.test(d) || num(r[tc]) != null || (segN && !(r[tc] || '').trim() && Math.abs((i || 0) - segIn) < 1 && Math.abs((o || 0) - segOut) < 1))) { segIn = segOut = segN = 0; return; }
       if (!cur || (i == null && o == null)) return;
+      segIn += i || 0; segOut += o || 0; segN++;
       out.push({ date: cur, ym: cur.slice(0, 7), inn: i || 0, out: o || 0, note: (r[tc] || '').trim(), order: dc * 1000 + k });
     });
   }
@@ -897,10 +902,10 @@ async function loadDaybook() {
 }
 
 // Investment sheet, "Sheet p/l": Month, Dr (money out), Cr (money in), P/L.
-// Months not yet written there are added up from the day book (Sheet2).
+// Months not yet written there are added up from the day book (DAY WISE).
 async function loadPL(bookP) {
   let rows;
-  try { rows = await fetchTab('Sheet p/l', null, INV_ID); } catch (e) { return null; }
+  try { rows = await fetchTab(PL_TAB, null, INV_ID); } catch (e) { return null; }
   if (!rows.length || !/^month/i.test((rows[0][0] || '').trim())) return null; // tab missing: Google sent another tab
   const out = rows.slice(1).filter((r) => (r[0] || '').trim() && (num(r[1]) != null || num(r[2]) != null) && !/total/i.test(r[0]))
     .map((r) => { const o = num(r[1]) || 0, i = num(r[2]) || 0; return { month: r[0].trim(), mi: FULL.findIndex((f) => f.startsWith(r[0].trim().toUpperCase().slice(0, 3))), out: o, inn: i, net: i - o, sheet: num(r[3]), source: 'p/l' }; });
@@ -919,7 +924,7 @@ let bookDay = null;
 function renderDaybook() {
   if (!STATE) return;
   const all = STATE.daybook;
-  if (!all) { setText('db-note', 'Could not read Sheet2 of the Investment sheet.'); return; }
+  if (!all) { setText('db-note', 'Could not read the DAY WISE tab of the Investment sheet.'); return; }
   const sel = $('db-month'), keep = sel.value;
   const months = [...new Set(all.map((x) => x.ym))].sort().reverse();
   sel.replaceChildren(new Option('All months', 'all'), ...months.map((m) => new Option(label(m), m)));
@@ -932,7 +937,7 @@ function renderDaybook() {
   const days = d3.rollups(list, (v) => ({ n: v.length, inn: d3.sum(v, (x) => x.inn), out: d3.sum(v, (x) => x.out) }), (x) => x.date)
     .map(([date, v]) => ({ date, ...v, net: v.inn - v.out })).sort((a, b) => (a.date < b.date ? -1 : 1));
   let run = 0; days.forEach((d) => { d.run = (run += d.net); });
-  setText('db-note', `Read live from Sheet2 of the Investment sheet. Cr is money in, Dr is money out. ${all.length} entries over ${new Set(all.map((x) => x.date)).size} days.`);
+  setText('db-note', `Read live from the DAY WISE tab of the Investment sheet. Cr is money in, Dr is money out. ${all.length} entries over ${new Set(all.map((x) => x.date)).size} days.`);
   setText('db-in', inr(tin)); setText('db-out', inr(tout)); setText('db-net', signed(net)); $('db-net').style.color = net >= 0 ? 'var(--ok)' : 'var(--bad)';
   setText('db-days', String(days.length));
   if (bookDay && !days.some((d) => d.date === bookDay)) bookDay = null;
@@ -967,7 +972,7 @@ function renderPL() {
   const signed = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + inr(Math.abs(v));
   const fromDaily = rows.filter((r) => r.source === 'daily');
   setText('pl-note', `Read live from the Investment sheet. ${rows.length} months. Dr is money going out of the shop, Cr is money coming in.`
-    + (fromDaily.length ? ` ${fromDaily.map((r) => r.month).join(', ')}: not in "Sheet p/l" yet, so added up from the daily entries in Sheet2 (${d3.sum(fromDaily, (r) => r.entries)} entries).` : ''));
+    + (fromDaily.length ? ` ${fromDaily.map((r) => r.month).join(', ')}: not in "Sheet p/l" yet, so added up from the daily entries in DAY WISE (${d3.sum(fromDaily, (r) => r.entries)} entries).` : ''));
   setText('pl-in', inr(tin)); setText('pl-out', inr(tout));
   setText('pl-net-k', net >= 0 ? 'Overall profit' : 'Overall loss');
   setText('pl-net', signed(net)); $('pl-net').style.color = net >= 0 ? 'var(--ok)' : 'var(--bad)';
