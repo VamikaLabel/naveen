@@ -565,7 +565,17 @@ footer { font-size: .8rem; color: var(--muted); }
     </section>
 
     <section class="card">
-      <h2>Day by day</h2>
+      <h2>Month-wise</h2>
+      <p class="note">Click a month to see all its dates below. Click it again (or pick "All months") to see every day.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Month</th><th class="num">Days</th><th class="num">Entries</th><th class="num">Cr (in)</th><th class="num">Dr (out)</th><th class="num">Net</th><th class="num">Running total</th></tr></thead>
+        <tbody id="db-month-body"></tbody>
+        <tfoot><tr id="db-month-foot"></tr></tfoot>
+      </table></div>
+    </section>
+
+    <section class="card" id="db-days-card">
+      <h2 id="db-days-title">Day by day</h2>
       <p class="note">Newest first. Net = Cr − Dr for that day. Running total adds up from the first day. Click a day to see its entries.</p>
       <div class="scroll tall"><table>
         <thead><tr><th>Date</th><th class="num">Entries</th><th class="num">Cr (in)</th><th class="num">Dr (out)</th><th class="num">Net</th><th class="num">Running total</th></tr></thead>
@@ -926,6 +936,15 @@ function renderDaybook() {
   setText('db-in', inr(tin)); setText('db-out', inr(tout)); setText('db-net', signed(net)); $('db-net').style.color = net >= 0 ? 'var(--ok)' : 'var(--bad)';
   setText('db-days', String(days.length));
   if (bookDay && !days.some((d) => d.date === bookDay)) bookDay = null;
+  const mon = d3.rollups(all, (v) => ({ days: new Set(v.map((x) => x.date)).size, n: v.length, inn: d3.sum(v, (x) => x.inn), out: d3.sum(v, (x) => x.out) }), (x) => x.ym)
+    .map(([ym, v]) => ({ ym, ...v, net: v.inn - v.out })).sort((a, b) => (a.ym < b.ym ? -1 : 1));
+  let mrun = 0; mon.forEach((m) => { m.run = (mrun += m.net); });
+  rowsInto($('db-month-body'), mon.slice().reverse(), [['ym', 0, (v) => label(v)], ['days', 1], ['n', 1], ['inn', 1, inr], ['out', 1, inr], ['net', 1, signed], ['run', 1, signed]], {
+    onPick: (r) => { sel.value = p === r.ym ? 'all' : r.ym; bookDay = null; renderDaybook(); if (sel.value !== 'all') $('db-days-card').scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+    cls: (t, r) => { t.classList.toggle('on', r.ym === p); requestAnimationFrame(() => { const c = t.cells[5]; if (c) c.style.color = r.net >= 0 ? 'var(--ok)' : 'var(--bad)'; }); }
+  });
+  footRow('db-month-foot', [['Total (' + mon.length + ' months)'], [String(d3.sum(mon, (m) => m.days)), 1], [String(all.length), 1], [inr(d3.sum(mon, (m) => m.inn)), 1], [inr(d3.sum(mon, (m) => m.out)), 1], [signed(d3.sum(mon, (m) => m.net)), 1], ['', 1]]);
+  setText('db-days-title', p === 'all' ? 'Day by day' : 'Day by day — ' + label(p) + ' (' + days.length + ' days)');
   const color = (t, v, i) => requestAnimationFrame(() => { const c = t.cells[i]; if (c) c.style.color = v >= 0 ? 'var(--ok)' : 'var(--bad)'; });
   rowsInto($('db-day-body'), days.slice().reverse(), [['date', 0, fmtD], ['n', 1], ['inn', 1, inr], ['out', 1, inr], ['net', 1, signed], ['run', 1, signed]], {
     onPick: (r) => { bookDay = bookDay === r.date ? null : r.date; renderDaybook(); },
