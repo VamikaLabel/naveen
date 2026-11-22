@@ -696,6 +696,18 @@ const belongsTo = (rows, ym) => {
   return rows.some((r) => (r[0] || '').trim().endsWith(tag));
 };
 
+// Google blanks cells whose type differs from most of the column, e.g. dates entered as real dates
+// in a column of typed-in dates. Asking for just those rows of column A brings them back.
+async function fillBlankDates(tab, rows) {
+  const blank = rows.map((r, i) => (!(r[0] || '').trim() && (r[1] || '').trim() && num(r[2]) != null ? i : -1)).filter((i) => i > 0);
+  if (!blank.length) return;
+  const lo = blank[0], hi = blank[blank.length - 1];
+  try {
+    const col = await fetchTab(tab, `A${lo + 1}:A${hi + 1}`);
+    blank.forEach((i) => { const v = ((col[i - lo] || [])[0] || '').trim(); if (v) rows[i][0] = v; });
+  } catch (e) { /* keep the entries without a date rather than fail the page */ }
+}
+
 // Tab names found before are remembered in this browser, so each month costs one request instead of up to five guesses.
 const tabMemory = (() => { try { return JSON.parse(localStorage.getItem('naveen-tabs') || '{}'); } catch (e) { return {}; } })();
 async function loadMonth(ym) {
@@ -704,6 +716,7 @@ async function loadMonth(ym) {
   for (const n of names) {
     const rows = await fetchTab(n); // a refused request now fails the load instead of silently dropping the month
     if (belongsTo(rows, ym)) {
+      await fillBlankDates(n, rows);
       if (tabMemory[ym] !== n) { tabMemory[ym] = n; try { localStorage.setItem('naveen-tabs', JSON.stringify(tabMemory)); } catch (e) {} }
       return { ym, tab: n, rows };
     }
